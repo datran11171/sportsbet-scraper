@@ -44,9 +44,11 @@
         <h2 id="race-title"></h2>
         <div class="meta" id="race-meta"></div>
         <div class="bf-status" id="bf-status" hidden></div>
+        <p class="race-comment" id="race-comment" hidden></p>
       </div>
       <div class="controls">
         <span id="updated"></span>
+        <label class="toggle"><input type="checkbox" id="comments" checked> Comments</label>
         <label><input type="checkbox" id="auto"> Auto-refresh 30s</label>
         <button class="secondary" id="refresh" type="button">Refresh</button>
       </div>
@@ -59,8 +61,10 @@
     </div>
     <div class="legend">Win / Place = Sportsbet fixed odds · Tote = tote win price ·
       Back / Lay = best Betfair Exchange price with $ available · BSP = Betfair starting price ·
-      <span class="move-up">▲</span> drifting <span class="move-down">▼</span> firming since last refresh ·
-      <span id="legend-fav">highlighted row = favourite</span></div>
+      <span class="move-up">▲</span> drifting <span class="move-down">▼</span> shortening since last refresh ·
+      <span id="legend-fav">highlighted row = favourite</span> ·
+      Flucs = Sportsbet fixed-win price history, open → now
+      (<span class="move-up">green</span> = drifting / price up, <span class="move-down">red</span> = shortening / price down)</div>
   </section>
 </main>
 
@@ -75,6 +79,7 @@ const COLUMNS = [
   { key: "Win", label: "Win", num: true, price: true },
   { key: "Place", label: "Place", num: true, price: true },
   { key: "Tote", label: "Tote", num: true, price: true },
+  { key: "Flucs", label: "Flucs", spark: true, nosort: true },
   { key: "Back", label: "Back", price: true, bf: "back", size: "BackSize" },
   { key: "Lay", label: "Lay", price: true, bf: "lay", size: "LaySize" },
   { key: "BSP", label: "BSP", num: true, price: true },
@@ -154,6 +159,59 @@ let loading = false;
 
 function fmtPrice(v) { return v == null ? "–" : Number(v).toFixed(2); }
 
+// Sparkline of a runner's Sportsbet price history (oldest → now).
+// Higher price is drawn higher. Each step is coloured by direction:
+// green = drifting (price went up), red = shortening (price went down).
+// Returns [svg, label]; the label repeats "open → now" in text so the
+// direction never relies on colour alone.
+const SVG_NS = "http://www.w3.org/2000/svg";
+function svgEl(name, attrs) {
+  const el = document.createElementNS(SVG_NS, name);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+}
+function direction(from, to) { return to > from ? "drift" : to < from ? "firm" : "flat"; }
+
+function sparkline(prices) {
+  const W = 112, H = 30, PAD = 4;
+  const lo = Math.min(...prices), hi = Math.max(...prices);
+  const x = (i) => PAD + i * (W - 2 * PAD) / (prices.length - 1);
+  const y = (p) => hi === lo ? H / 2 : PAD + (hi - p) / (hi - lo) * (H - 2 * PAD);
+
+  const svg = svgEl("svg", { class: "spark", width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: "img",
+    "aria-label": "Price history: " + prices.map(p => fmtPrice(p)).join(", ") });
+
+  // One line segment per move, so each can take its own colour.
+  for (let i = 1; i < prices.length; i++) {
+    svg.append(svgEl("line", { class: "seg " + direction(prices[i - 1], prices[i]),
+      x1: x(i - 1), y1: y(prices[i - 1]), x2: x(i), y2: y(prices[i]) }));
+  }
+  // Dot on the current price, coloured by the latest move.
+  const last = prices.length - 1;
+  svg.append(svgEl("circle", { class: "end " + direction(prices[last - 1], prices[last]),
+    cx: x(last), cy: y(prices[last]), r: 3 }));
+
+  // Invisible, larger hover targets with a tooltip for every point.
+  prices.forEach((p, i) => {
+    const hit = svgEl("circle", { class: "hit", cx: x(i), cy: y(p), r: 7 });
+    const label = i === 0 ? "Open" : i === last ? "Now" : `Move ${i}`;
+    const change = i === 0 ? "" :
+      p > prices[i - 1] ? ` (drifted from ${fmtPrice(prices[i - 1])})` :
+      p < prices[i - 1] ? ` (shortened from ${fmtPrice(prices[i - 1])})` : " (unchanged)";
+    const title = svgEl("title", {});
+    title.textContent = `${label}: ${fmtPrice(p)}${change}`;
+    hit.append(title);
+    svg.append(hit);
+  });
+
+  const text = document.createElement("span");
+  text.className = "spark-label";
+  const overall = direction(prices[0], prices[last]);
+  text.textContent = `${fmtPrice(prices[0])} → ${fmtPrice(prices[last])}` +
+    (overall === "drift" ? " ▲" : overall === "firm" ? " ▼" : "");
+  return [svg, text];
+}
+
 function showError(msg) {
   $("error").textContent = msg;
   $("error").hidden = !msg;
@@ -213,11 +271,17 @@ function render() {
   // Back/Lay only while Betfair has prices (a closed market has none).
   const hasBetfair = Boolean(bf.marketName) && runners.some(r => r.Back != null || r.Lay != null);
   const hasBsp = runners.some(r => r.BSP != null);
+  const hasFlucs = runners.some(r => (r.Flucs || []).length > 1);
   const cols = COLUMNS.filter(c =>
     (c.key !== "Tote" || hasTote) &&
     (!c.bf || hasBetfair) &&
     (c.key !== "BSP" || hasBsp) &&
+    (!c.spark || hasFlucs) &&
     (!c.optional || runners.some(r => r[c.key])));
+
+  const showComments = $("comments").checked;
+  $("race-comment").textContent = race.comment || "";
+  $("race-comment").hidden = !(showComments && race.comment);
 
   // Header
   const head = $("head");
@@ -226,6 +290,10 @@ function render() {
     th.textContent = c.label;
     if (c.num) th.className = "num";
     if (c.bf) th.className = "bf-head";
+    if (c.nosort) {
+      th.className = "nosort";
+      return th;
+    }
     if (sort.key === c.key) {
       const a = document.createElement("span");
       a.className = "arrow";
@@ -253,7 +321,7 @@ function render() {
   const favWin = active.length ? Math.min(...active.map(r => r.Win)) : null;
   const resulted = (current.results || []).length > 0;
 
-  $("body").replaceChildren(...rows.map(r => {
+  $("body").replaceChildren(...rows.flatMap(r => {
     const tr = document.createElement("tr");
     if (r.Status === "SCR") tr.className = "scr";
     else if (resulted ? r.Status === "1st" : (r.Win != null && r.Win === favWin)) {
@@ -265,7 +333,10 @@ function render() {
       const classes = [];
       if (c.num) classes.push("num");
       if (c.key === "Status") classes.push("status");
-      if (c.price) {
+      if (c.spark) {
+        classes.push("flucs");
+        if (r.Status !== "SCR" && (r.Flucs || []).length > 1) td.append(...sparkline(r.Flucs));
+      } else if (c.price) {
         classes.push("price");
         td.textContent = fmtPrice(r[c.key]);
         let sizeSpan = null;
@@ -294,7 +365,17 @@ function render() {
       td.className = classes.join(" ");
       tr.append(td);
     }
-    return tr;
+
+    // The runner's comment, in its own full-width row underneath.
+    if (!showComments || !r.Comment || r.Status === "SCR") return [tr];
+    tr.classList.add("has-comment");
+    const commentRow = document.createElement("tr");
+    commentRow.className = "comment-row";
+    const td = document.createElement("td");
+    td.colSpan = cols.length;
+    td.textContent = r.Comment;
+    commentRow.append(td);
+    return [tr, commentRow];
   }));
 
   $("legend-fav").textContent = resulted ? "highlighted row = winner" : "highlighted row = favourite";
@@ -332,6 +413,13 @@ $("source").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("form").requestSubmit(); }
 });
 $("refresh").onclick = () => current && load(current.source, { keepHistory: true });
+// Comments on/off, remembered in this browser (fine if storage is blocked).
+try { $("comments").checked = localStorage.getItem("race.comments") !== "off"; } catch {}
+$("comments").onchange = (e) => {
+  try { localStorage.setItem("race.comments", e.target.checked ? "on" : "off"); } catch {}
+  if (current) render();
+};
+
 $("auto").onchange = (e) => {
   clearInterval(timer);
   if (e.target.checked) timer = setInterval(() => current && load(current.source, { keepHistory: true }), 30000);

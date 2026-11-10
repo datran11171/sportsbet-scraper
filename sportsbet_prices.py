@@ -156,6 +156,8 @@ def extract_runners(payload):
         else:
             status = ""
         weight = sel.get("weightGram")
+        stats = sel.get("statistics") or {}
+        win = None if scratched else _price(prices, "L", "winPrice")
         runners.append({
             "No": sel.get("runnerNumber", ""),
             "Runner": sel.get("name", ""),
@@ -163,13 +165,35 @@ def extract_runners(payload):
             "Jockey/Driver": sel.get("jockey") or sel.get("driver") or "",
             "Trainer": sel.get("trainer", ""),
             "Weight": f"{weight / 1000:g}kg" if weight else "",
-            "Win": None if scratched else _price(prices, "L", "winPrice"),
+            "Win": win,
             "Place": None if scratched else _price(prices, "L", "placePrice"),
             "Tote": None if scratched else _price(prices, "NTP", "winPrice"),
             "Status": status,
+            # Extra detail for the web app (left out of the terminal table).
+            "Comment": (stats.get("overview") or "").strip(),
+            "Open": _num(stats.get("openPrice")),
+            "Flucs": fluctuations(stats.get("openPrice"), sel.get("recentOddsFluctuations"), win),
         })
     runners.sort(key=lambda r: (r["Status"] == "SCR", r["No"] if r["No"] != "" else 999))
     return event, runners
+
+
+def fluctuations(open_price, recent, current):
+    """Sportsbet fixed-win price history, oldest first, ending at the current price.
+
+    Sportsbet's recentOddsFluctuations holds up to 10 earlier prices, *newest
+    first*, not including the current price; when it has fewer than 10 the last
+    one is the opening price. A longer history is cut to 10, so the opening price
+    is added at the start when it isn't already there.
+    """
+    series = [_num(p) for p in reversed(recent or [])]
+    series = [p for p in series if p is not None]
+    open_price = _num(open_price)
+    if open_price is not None and (not series or series[0] != open_price):
+        series.insert(0, open_price)
+    if current is not None and (not series or series[-1] != current):
+        series.append(current)
+    return series
 
 
 def ordinal(n):
@@ -349,9 +373,11 @@ def print_table(event, runners):
         title += f"  ({event['distance']}m)"
     print(title)
 
+    hidden = set(WEB_ONLY_COLS)
     if not any(r["Tote"] for r in runners):
-        runners = [{k: v for k, v in r.items() if k != "Tote"} for r in runners]
-    print_grid(runners, price_cols={"Win", "Place", "Tote"})
+        hidden.add("Tote")
+    print_grid([{k: v for k, v in r.items() if k not in hidden} for r in runners],
+               price_cols={"Win", "Place", "Tote"})
     print("Win/Place = Sportsbet fixed odds; Tote = tote win price; SCR = scratched")
 
     placings, exotics = extract_results(event)
@@ -363,11 +389,16 @@ def print_table(event, runners):
         print_grid(exotics, price_cols={"Dividend"})
 
 
+WEB_ONLY_COLS = ("Comment", "Open", "Flucs")  # too wide for the terminal table
+
+
 def write_csv(path, runners):
+    # Flucs is a list; write it as "4.5 > 3.1 > 2.7" so it fits in one cell.
+    rows = [{**r, "Flucs": " > ".join(f"{p:g}" for p in r["Flucs"])} for r in runners]
     with open(path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=list(runners[0].keys()))
+        writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
         writer.writeheader()
-        writer.writerows(runners)
+        writer.writerows(rows)
 
 
 def main():

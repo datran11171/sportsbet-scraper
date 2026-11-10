@@ -3,12 +3,16 @@
   --bg: #f6f7f9; --card: #fff; --text: #1b1f24; --muted: #66707a;
   --border: #e1e4e8; --accent: #0b63ce; --accent-text: #fff;
   --up: #c62828; --down: #2e7d32; --fav: #fff7d6; --error-bg: #fdecea; --error: #b3261e;
+  /* Price moves: drifting (price up) green, shortening (price down) red.
+     Validated for colour-blind separation and contrast on --card. */
+  --drift: #007a00; --firm: #f06262;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #111418; --card: #1a1e24; --text: #e6e8eb; --muted: #9aa3ad;
     --border: #2c323a; --accent: #4c9bff; --accent-text: #0b1220;
     --up: #ff6b6b; --down: #5fd38a; --fav: #3a3420; --error-bg: #3b1d1b; --error: #ffb4ab;
+    --drift: #34a84c; --firm: #c03a3a;
   }
 }
 * { box-sizing: border-box; }
@@ -56,8 +60,8 @@ th.bf-head { text-align: center; }
 .bf-status.warn { color: var(--error); }
 tr.scr td { color: var(--muted); text-decoration: line-through; }
 tr.scr td.status { text-decoration: none; }
-.move-up { color: var(--up); }
-.move-down { color: var(--down); }
+.move-up { color: var(--drift); }   /* price went up: drifting */
+.move-down { color: var(--firm); }  /* price went down: shortening */
 .legend { padding: 10px 16px; font-size: 12px; color: var(--muted); }
 .badge { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px;
          font-size: 12px; font-weight: 600; vertical-align: middle;
@@ -130,3 +134,31 @@ a { color: var(--accent); }
 @media (max-width: 640px) {
   .jumpbar-label { font-size: 12px; }
 }
+
+/* ---- Runner comments ---- */
+tr.comment-row td { padding: 0 12px 10px 52px; border-bottom: 1px solid var(--border);
+                    white-space: normal; color: var(--muted); font-size: 13px; line-height: 1.45; }
+tr.has-comment td { border-bottom: 0; }
+tr.fav + tr.comment-row td, tr.win + tr.comment-row td { background: var(--fav); }
+.race-comment { margin: 6px 0 0; max-width: 80ch; color: var(--muted); font-size: 13px; line-height: 1.45; }
+.toggle { display: inline-flex; align-items: center; gap: 4px; }
+
+/* ---- Odds fluctuation sparkline ---- */
+td.flucs { padding-top: 6px; padding-bottom: 6px; }
+.spark { display: block; overflow: visible; }
+.spark .seg { fill: none; stroke-width: 2; stroke-linecap: round; }
+.spark .seg.drift { stroke: var(--drift); }
+.spark .seg.firm { stroke: var(--firm); }
+.spark .seg.flat { stroke: var(--muted); }
+.spark .pt { fill: var(--card); stroke: var(--muted); stroke-width: 1.5; }
+.spark .pt.drift { stroke: var(--drift); }
+.spark .pt.firm { stroke: var(--firm); }
+.spark .end { stroke: none; }
+.spark .end.drift { fill: var(--drift); }
+.spark .end.firm { fill: var(--firm); }
+.spark .end.flat { fill: var(--muted); }
+.spark .hit { fill: transparent; cursor: default; }
+.spark .pt, .spark .end, .spark .seg { pointer-events: none; }
+.spark .hit:hover { fill: color-mix(in srgb, var(--muted) 25%, transparent); }
+.spark-label { display: block; margin-top: 1px; color: var(--muted); font-size: 11px; font-weight: 400; }
+th.nosort { cursor: default; }

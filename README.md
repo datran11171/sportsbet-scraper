@@ -46,7 +46,13 @@ key and login.
 - **Sportsbet** fixed Win/Place odds and the tote win price.
 - **Betfair** best Back (blue) and Lay (pink) prices with the $ available, the same as betfair.com.au shows (virtual/cross-matched prices included).
 - Click any column header to sort. The favourite is highlighted, and scratched runners are struck out and listed last.
-- Refresh button and optional 30-second auto-refresh. ▲/▼ markers show which prices moved since the last refresh.
+- **Flucs**: a small graph of each runner's Sportsbet price history from open to now.
+  Green steps mean the price drifted (went up) and red steps mean it shortened (went down).
+  Hover a point to see that price, and read "open → now" underneath.
+- **Comments**: Sportsbet's form comment under each runner, plus a race overview.
+  Turn them off with the **Comments** checkbox; the page remembers your choice.
+- Refresh button and optional 30-second auto-refresh. ▲/▼ markers show which prices moved
+  since the last refresh, using the same green/red colours as Flucs.
 
 **Resulted races**
 - A results table showing:
@@ -259,6 +265,10 @@ by name instead.
 ### Sportsbet field notes
 
 - **Price codes:** `L` = fixed odds (win/place), `NTP` = tote win.
+- **Price history:** `recentOddsFluctuations` holds up to 10 earlier prices, *newest first*,
+  without the current price. `statistics.openPrice` is the opening price.
+  The app builds the history in time order: open → the list reversed → the current price.
+- **Comments:** each runner's comment is `statistics.overview`, and the race comment is the race's `overview`.
 - **Before a race,** runner status `S` means scratched. **After it,** every runner
   becomes `S` ("settled"), and scratchings are marked with a result of `V` (void).
 - **Dividends** look like `SP:10.0`, `STAB/PL:7.5/1.9` (winner's tote win/place) and

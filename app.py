@@ -145,6 +145,7 @@ def prices():
             "title": event.get("displayName") or event.get("name") or "Race",
             "name": event.get("name", ""),
             "distance": event.get("distance"),
+            "comment": (event.get("overview") or "").strip(),
             "start": datetime.fromtimestamp(start, timezone.utc).isoformat() if start else None,
         },
         runners=runners,
