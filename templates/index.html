@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Race Prices</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --text: #1b1f24; --muted: #66707a;
+    --border: #e1e4e8; --accent: #0b63ce; --accent-text: #fff;
+    --up: #c62828; --down: #2e7d32; --fav: #fff7d6; --error-bg: #fdecea; --error: #b3261e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111418; --card: #1a1e24; --text: #e6e8eb; --muted: #9aa3ad;
+      --border: #2c323a; --accent: #4c9bff; --accent-text: #0b1220;
+      --up: #ff6b6b; --down: #5fd38a; --fav: #3a3420; --error-bg: #3b1d1b; --error: #ffb4ab;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1200px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  form { display: flex; gap: 8px; flex-wrap: wrap; }
+  textarea { flex: 1 1 420px; min-height: 44px; resize: vertical; padding: 10px 12px;
+             border: 1px solid var(--border); border-radius: 8px; background: var(--card);
+             color: var(--text); font: inherit; }
+  button { padding: 0 18px; min-height: 44px; border: 0; border-radius: 8px; cursor: pointer;
+           background: var(--accent); color: var(--accent-text); font: inherit; font-weight: 600; }
+  button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--border); }
+  button:disabled { opacity: .55; cursor: default; }
+  .error { margin-top: 16px; padding: 10px 14px; border-radius: 8px;
+           background: var(--error-bg); color: var(--error); white-space: pre-wrap; }
+  .card { margin-top: 20px; background: var(--card); border: 1px solid var(--border);
+          border-radius: 10px; overflow: hidden; }
+  .race-head { padding: 14px 16px; border-bottom: 1px solid var(--border);
+               display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .race-head h2 { margin: 0; font-size: 18px; }
+  .race-head .meta { color: var(--muted); font-size: 13px; }
+  .controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+  .controls button { min-height: 32px; padding: 0 12px; font-size: 13px; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { padding: 9px 12px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--border); }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
+       cursor: pointer; user-select: none; }
+  th.num, td.num { text-align: right; }
+  th .arrow { opacity: .7; }
+  td.price { font-weight: 600; }
+  tr.fav td { background: var(--fav); }
+  tr.scr td { color: var(--muted); text-decoration: line-through; }
+  tr.scr td.status { text-decoration: none; }
+  .move-up { color: var(--up); }
+  .move-down { color: var(--down); }
+  .legend { padding: 10px 16px; font-size: 12px; color: var(--muted); }
+  .badge { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px;
+           font-size: 12px; font-weight: 600; vertical-align: middle;
+           background: var(--accent); color: var(--accent-text); }
+  .sub-head { margin: 0; padding: 14px 16px 6px; font-size: 14px; }
+  tr.win td { background: var(--fav); font-weight: 600; }
+  #results-table th { cursor: default; }
+  #exotics-table th { cursor: default; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Race Prices</h1>
+  <p class="sub">Paste a Sportsbet race link (or a copied cURL command) to see every runner's price.</p>
+
+  <form id="form">
+    <textarea id="source" rows="1" placeholder="https://www.sportsbet.com.au/horse-racing/australia-nz/mornington/race-2-11139920" required></textarea>
+    <button id="go" type="submit">Get prices</button>
+  </form>
+
+  <div id="error" class="error" hidden></div>
+
+  <section id="results" class="card" hidden>
+    <div class="race-head">
+      <div>
+        <h2>Result <span class="badge">Resulted</span></h2>
+        <div class="meta">Finishing order with starting price (SP), Sportsbet fixed odds and tote dividends</div>
+      </div>
+    </div>
+    <div class="table-wrap"><table id="results-table"></table></div>
+    <div id="exotics-wrap" hidden>
+      <h3 class="sub-head">Exotics</h3>
+      <div class="table-wrap"><table id="exotics-table"></table></div>
+    </div>
+  </section>
+
+  <section id="result" class="card" hidden>
+    <div class="race-head">
+      <div>
+        <h2 id="race-title"></h2>
+        <div class="meta" id="race-meta"></div>
+      </div>
+      <div class="controls">
+        <span id="updated"></span>
+        <label><input type="checkbox" id="auto"> Auto-refresh 30s</label>
+        <button class="secondary" id="refresh" type="button">Refresh</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr id="head"></tr></thead>
+        <tbody id="body"></tbody>
+      </table>
+    </div>
+    <div class="legend">Win / Place = Sportsbet fixed odds · Tote = tote win price ·
+      <span class="move-up">▲</span> drifting <span class="move-down">▼</span> firming since last refresh ·
+      <span id="legend-fav">highlighted row = favourite</span></div>
+  </section>
+</main>
+
+<script>
+const COLUMNS = [
+  { key: "No", label: "No", num: true },
+  { key: "Runner", label: "Runner" },
+  { key: "Barrier", label: "Bar", num: true },
+  { key: "Jockey/Driver", label: "Jockey / Driver" },
+  { key: "Trainer", label: "Trainer" },
+  { key: "Weight", label: "Wt" },
+  { key: "Win", label: "Win", num: true, price: true },
+  { key: "Place", label: "Place", num: true, price: true },
+  { key: "Tote", label: "Tote", num: true, price: true },
+  { key: "Status", label: "Status" },
+];
+
+const RESULT_COLUMNS = [
+  { key: "Pos", label: "Pos" },
+  { key: "No", label: "No", num: true },
+  { key: "Runner", label: "Runner" },
+  { key: "Jockey/Driver", label: "Jockey / Driver" },
+  { key: "Trainer", label: "Trainer" },
+  { key: "SP", label: "SP", num: true, price: true },
+  { key: "Fixed Win", label: "Fixed Win", num: true, price: true },
+  { key: "Fixed Place", label: "Fixed Place", num: true, price: true },
+  { key: "Tote Win", label: "Tote Win", num: true, price: true },
+  { key: "Tote Place", label: "Tote Place", num: true, price: true },
+];
+
+const EXOTIC_COLUMNS = [
+  { key: "Bet", label: "Bet" },
+  { key: "Runners", label: "Runners" },
+  { key: "Dividend", label: "Dividend", num: true, price: true },
+];
+
+// Build a simple (non-sortable) table from rows of data.
+function fillTable(table, columns, rows, rowClass = () => "") {
+  const head = document.createElement("tr");
+  for (const c of columns) {
+    const th = document.createElement("th");
+    th.textContent = c.label;
+    if (c.num) th.className = "num";
+    head.append(th);
+  }
+  const thead = document.createElement("thead");
+  thead.append(head);
+
+  const tbody = document.createElement("tbody");
+  for (const r of rows) {
+    const tr = document.createElement("tr");
+    tr.className = rowClass(r);
+    for (const c of columns) {
+      const td = document.createElement("td");
+      td.textContent = c.price ? fmtPrice(r[c.key]) : (r[c.key] ?? "");
+      td.className = [c.num && "num", c.price && "price"].filter(Boolean).join(" ");
+      tr.append(td);
+    }
+    tbody.append(tr);
+  }
+  table.replaceChildren(thead, tbody);
+}
+
+function renderResults() {
+  const { results = [], exotics = [] } = current;
+  $("results").hidden = results.length === 0;
+  if (!results.length) return;
+  fillTable($("results-table"), RESULT_COLUMNS, results, r => r.Pos === "1st" ? "win" : "");
+  $("exotics-wrap").hidden = exotics.length === 0;
+  if (exotics.length) fillTable($("exotics-table"), EXOTIC_COLUMNS, exotics);
+
+  // Prices won't change any more, so stop auto-refreshing.
+  if ($("auto").checked) {
+    $("auto").checked = false;
+    clearInterval(timer);
+  }
+}
+
+const $ = (id) => document.getElementById(id);
+let current = null;        // last response
+let previous = {};         // runner name -> {Win, Place, Tote} from the previous fetch
+let sort = { key: "No", dir: 1 };
+let timer = null;
+let loading = false;
+
+function fmtPrice(v) { return v == null ? "–" : Number(v).toFixed(2); }
+
+function showError(msg) {
+  $("error").textContent = msg;
+  $("error").hidden = !msg;
+}
+
+async function load(source, { keepHistory = false } = {}) {
+  if (loading) return;
+  loading = true;
+  $("go").disabled = $("refresh").disabled = true;
+  showError("");
+  try {
+    const resp = await fetch("/api/prices", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || "Request failed");
+
+    // Remember old prices so we can show movement, but only for the same race.
+    if (keepHistory && current && current.race.title === data.race.title) {
+      previous = Object.fromEntries(current.runners.map(r => [r.Runner, r]));
+    } else {
+      previous = {};
+    }
+    current = data;
+    current.source = source;
+    render();
+
+    // Put a plain link in the address bar so the page can be bookmarked.
+    if (!source.startsWith("curl")) {
+      history.replaceState(null, "", "?race=" + encodeURIComponent(source));
+    }
+  } catch (e) {
+    showError(e.message);
+  } finally {
+    loading = false;
+    $("go").disabled = $("refresh").disabled = false;
+  }
+}
+
+function render() {
+  const { race, runners, fetched } = current;
+  $("result").hidden = false;
+  $("race-title").textContent = race.title;
+  const bits = [];
+  if (race.name && race.name !== race.title) bits.push(race.name);
+  if (race.distance) bits.push(race.distance + "m");
+  if (race.start) bits.push(new Date(race.start).toLocaleString([], {
+    weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }));
+  $("race-meta").textContent = bits.join(" · ");
+  $("updated").textContent = "Updated " + new Date(fetched).toLocaleTimeString();
+
+  const hasTote = runners.some(r => r.Tote != null);
+  const cols = COLUMNS.filter(c => c.key !== "Tote" || hasTote);
+
+  // Header
+  const head = $("head");
+  head.replaceChildren(...cols.map(c => {
+    const th = document.createElement("th");
+    th.textContent = c.label;
+    if (c.num) th.className = "num";
+    if (sort.key === c.key) {
+      const a = document.createElement("span");
+      a.className = "arrow";
+      a.textContent = sort.dir > 0 ? " ↑" : " ↓";
+      th.append(a);
+    }
+    th.onclick = () => {
+      sort = { key: c.key, dir: sort.key === c.key ? -sort.dir : 1 };
+      render();
+    };
+    return th;
+  }));
+
+  // Rows: scratched runners always last, then the chosen sort.
+  const rows = [...runners].sort((a, b) => {
+    const sa = a.Status === "SCR", sb = b.Status === "SCR";
+    if (sa !== sb) return sa ? 1 : -1;
+    const va = a[sort.key], vb = b[sort.key];
+    if (va == null || va === "") return 1;
+    if (vb == null || vb === "") return -1;
+    return (typeof va === "number" ? va - vb : String(va).localeCompare(String(vb))) * sort.dir;
+  });
+
+  const active = runners.filter(r => r.Win != null);
+  const favWin = active.length ? Math.min(...active.map(r => r.Win)) : null;
+  const resulted = (current.results || []).length > 0;
+
+  $("body").replaceChildren(...rows.map(r => {
+    const tr = document.createElement("tr");
+    if (r.Status === "SCR") tr.className = "scr";
+    else if (resulted ? r.Status === "1st" : (r.Win != null && r.Win === favWin)) {
+      tr.className = resulted ? "win" : "fav";
+    }
+
+    for (const c of cols) {
+      const td = document.createElement("td");
+      const classes = [];
+      if (c.num) classes.push("num");
+      if (c.key === "Status") classes.push("status");
+      if (c.price) {
+        classes.push("price");
+        td.textContent = fmtPrice(r[c.key]);
+        const old = previous[r.Runner]?.[c.key];
+        if (old != null && r[c.key] != null && old !== r[c.key]) {
+          const m = document.createElement("span");
+          const up = r[c.key] > old;
+          m.className = up ? "move-up" : "move-down";
+          m.textContent = up ? " ▲" : " ▼";
+          m.title = "was " + fmtPrice(old);
+          td.append(m);
+        }
+      } else {
+        td.textContent = r[c.key] ?? "";
+      }
+      td.className = classes.join(" ");
+      tr.append(td);
+    }
+    return tr;
+  }));
+
+  $("legend-fav").textContent = resulted ? "highlighted row = winner" : "highlighted row = favourite";
+  renderResults();
+}
+
+$("form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  load($("source").value.trim());
+});
+$("source").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("form").requestSubmit(); }
+});
+$("refresh").onclick = () => current && load(current.source, { keepHistory: true });
+$("auto").onchange = (e) => {
+  clearInterval(timer);
+  if (e.target.checked) timer = setInterval(() => current && load(current.source, { keepHistory: true }), 30000);
+};
+
+// Load a race from ?race=... on page open.
+const initial = new URLSearchParams(location.search).get("race");
+if (initial) { $("source").value = initial; load(initial); }
+</script>
+</body>
+</html>
