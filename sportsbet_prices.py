@@ -208,17 +208,24 @@ def extract_results(event):
 
     Returns (placings, exotics); both are empty lists if the race hasn't run.
     """
+    # The results feed sometimes leaves out jockey/trainer (e.g. UK greyhounds),
+    # so fall back to the race card entry for the same runner number.
+    markets = event.get("markets") or [{}]
+    card = {s.get("runnerNumber"): s for s in markets[0].get("selections", [])}
+
     placings = []
     for r in sorted(event.get("results") or [], key=lambda r: r.get("place") or 99):
         dividends = r.get("dividend") or []
         sp = next((d.partition(":")[2] for d in dividends if d.startswith("SP:")), None)
         tote_win, tote_place = _tote_dividends(dividends)
+        c = card.get(r.get("runnerNumber"), {})
         placings.append({
             "Pos": ordinal(r["place"]) if r.get("place") else "",
             "No": r.get("runnerNumber", ""),
             "Runner": r.get("name", ""),
-            "Jockey/Driver": r.get("jockey") or r.get("driver") or "",
-            "Trainer": r.get("trainer", ""),
+            "Jockey/Driver": (r.get("jockey") or r.get("driver")
+                              or c.get("jockey") or c.get("driver") or ""),
+            "Trainer": r.get("trainer") or c.get("trainer") or "",
             "SP": _num(sp),
             "Fixed Win": r.get("winPrice"),
             "Fixed Place": r.get("placePrice"),
@@ -232,6 +239,57 @@ def extract_results(event):
         "Dividend": _num(x.get("dividend")),
     } for x in event.get("exoticResults") or []]
     return placings, exotics
+
+
+DAY_URL = ("https://www.sportsbet.com.au/apigw/sportsbook-racing/"
+           "Sportsbook/Racing/AllRacing/{date}")
+RACE_STATUS = {"A": "open", "R": "resulted", "B": "abandoned"}  # anything else: closed / running
+
+
+def _slug(text):
+    return re.sub(r"[^a-z0-9]+", "-", (text or "").lower()).strip("-")
+
+
+def get_day(date):
+    """All of Sportsbet's races for a date ('YYYY-MM-DD'), grouped by meeting.
+
+    Returns a list of meetings:
+      {"name", "type" (horse/greyhound/harness), "region", "international", "races": [...]}
+    and each race:
+      {"id", "number", "start" (epoch seconds), "status", "result", "name", "distance", "link"}
+    """
+    payload = fetch_json(DAY_URL.format(date=date), {})
+    meetings = []
+    for day in payload.get("dates", []):
+        for section in day.get("sections", []):
+            race_type = section.get("raceType", "horse")
+            for m in section.get("meetings", []):
+                international = bool(m.get("isInternational"))
+                region_path = "international" if international else "australia-nz"
+                races = []
+                for e in m.get("events", []):
+                    # A Sportsbet-style link; get_race() only needs the event id at the end.
+                    link = (f"https://www.sportsbet.com.au/{race_type}-racing/{region_path}/"
+                            f"{_slug(m.get('name'))}/race-{e.get('raceNumber')}-{e['id']}")
+                    races.append({
+                        "id": e["id"],
+                        "number": e.get("raceNumber"),
+                        "start": e.get("startTime"),
+                        "status": RACE_STATUS.get(e.get("statusCode"), "closed"),
+                        "result": (e.get("result") or "").replace(",", "-"),
+                        "name": e.get("name", ""),
+                        "distance": e.get("distance"),
+                        "link": link,
+                    })
+                races.sort(key=lambda r: r["number"] or 0)
+                meetings.append({
+                    "name": m.get("name", ""),
+                    "type": race_type,
+                    "region": m.get("regionName", ""),
+                    "international": international,
+                    "races": races,
+                })
+    return meetings
 
 
 def get_race(text):

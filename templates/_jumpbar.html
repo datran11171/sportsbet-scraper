@@ -1,0 +1,8 @@
+{# "Next to jump" bar, stuck to the top of every page. Filled in by static/jumpbar.js. #}
+<nav class="jumpbar" id="jumpbar" aria-label="Next to jump">
+  <div class="jumpbar-inner">
+    <span class="jumpbar-label">Next to jump</span>
+    <div class="jumpbar-list" id="jumpbar-list"><span class="jumpbar-empty">Loading…</span></div>
+  </div>
+</nav>
+<script src="{{ url_for('static', filename='jumpbar.js') }}" defer></script>

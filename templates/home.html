@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Race Prices</title>
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+{% include "_jumpbar.html" %}
+<main>
+  <header class="topbar">
+    <a class="home-btn" href="/" aria-current="page">⌂ Home</a>
+    <h1>Race Prices</h1>
+  </header>
+  <p class="sub">Every Sportsbet race for the day. Click a race to see its prices, Betfair back/lay and results.</p>
+
+  <form id="form">
+    <textarea id="source" rows="1" placeholder="…or paste a Sportsbet race link" required></textarea>
+    <button type="submit">Get prices</button>
+  </form>
+
+  <div class="toolbar">
+    <div class="date-nav">
+      <button class="secondary" id="prev" type="button" aria-label="Previous day">‹</button>
+      <span class="date-label" id="date-label"></span>
+      <button class="secondary" id="next" type="button" aria-label="Next day">›</button>
+      <button class="secondary" id="today" type="button">Today</button>
+    </div>
+    <div class="seg" id="type-filter">
+      <button type="button" data-v="all">All</button>
+      <button type="button" data-v="horse">Horses</button>
+      <button type="button" data-v="greyhound">Greyhounds</button>
+      <button type="button" data-v="harness">Harness</button>
+    </div>
+    <div class="seg" id="region-filter">
+      <button type="button" data-v="all">All regions</button>
+      <button type="button" data-v="aus">Aus / NZ</button>
+      <button type="button" data-v="intl">International</button>
+    </div>
+
+    <span class="meta muted" id="updated"></span>
+  </div>
+
+  <div id="error" class="error" hidden></div>
+
+  <div id="sections"></div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const TYPE_NAMES = { horse: "Horses", greyhound: "Greyhounds", harness: "Harness" };
+
+// Remember filters between visits (per browser only; fine if storage is blocked).
+function load(key, fallback) { try { return localStorage.getItem(key) || fallback; } catch { return fallback; } }
+function save(key, value) { try { localStorage.setItem(key, value); } catch {} }
+
+function localISO(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+const todayISO = () => localISO(new Date());
+
+const state = {
+  date: new URLSearchParams(location.search).get("date") || todayISO(),
+  type: load("home.type", "all"),
+  region: load("home.region", "all"),
+  meetings: [],
+};
+
+const raceHref = (race) => "/race?race=" + encodeURIComponent(race.link);
+const timeOf = (epoch) => new Date(epoch * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+function visibleMeetings() {
+  return state.meetings.filter(m =>
+    (state.type === "all" || m.type === state.type) &&
+    (state.region === "all" || (state.region === "intl") === m.international));
+}
+
+function render() {
+  // Filters
+  for (const [id, key] of [["type-filter", "type"], ["region-filter", "region"]]) {
+    for (const b of $(id).querySelectorAll("button")) b.classList.toggle("on", b.dataset.v === state[key]);
+  }
+  const d = new Date(state.date + "T00:00:00");
+  $("date-label").textContent = (state.date === todayISO() ? "Today, " : "") +
+    d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
+
+  const meetings = visibleMeetings();
+
+  // One card per race type, one row per meeting.
+  const sections = [];
+  for (const type of ["horse", "greyhound", "harness"]) {
+    const list = meetings.filter(m => m.type === type);
+    if (!list.length) continue;
+    // Aus/NZ first, then by first race time.
+    list.sort((a, b) => (a.international - b.international) ||
+      ((a.races[0]?.start || 0) - (b.races[0]?.start || 0)));
+
+    const h = document.createElement("h2");
+    h.className = "section-title";
+    h.textContent = TYPE_NAMES[type] + " ";
+    const count = document.createElement("span");
+    count.className = "count";
+    count.textContent = `${list.length} meetings · ${list.reduce((n, m) => n + m.races.length, 0)} races`;
+    h.append(count);
+
+    const card = document.createElement("section");
+    card.className = "card";
+    card.style.marginTop = "0";
+    for (const m of list) card.append(meetingRow(m));
+    sections.push(h, card);
+  }
+  if (!sections.length && state.loaded) {
+    const p = document.createElement("p");
+    p.className = "empty-note";
+    p.textContent = state.meetings.length ? "No races match these filters." : "No races listed for this day.";
+    sections.push(p);
+  }
+  $("sections").replaceChildren(...sections);
+}
+
+function meetingRow(m) {
+  const row = document.createElement("div");
+  row.className = "meeting";
+  const venue = document.createElement("div");
+  venue.className = "venue";
+  venue.textContent = m.name;
+  const region = document.createElement("span");
+  region.className = "region";
+  region.textContent = m.region;
+  venue.append(region);
+
+  const chips = document.createElement("div");
+  chips.className = "chips";
+  const nextOpen = m.races.find(r => r.status === "open");
+  for (const r of m.races) {
+    const a = document.createElement("a");
+    a.className = "chip " + r.status + (r === nextOpen ? " next" : "");
+    a.href = raceHref(r);
+    a.title = r.name + (r.distance ? ` (${r.distance}m)` : "");
+    const num = document.createElement("b");
+    num.textContent = "R" + r.number;
+    const info = document.createElement("span");
+    info.textContent =
+      r.status === "resulted" ? (r.result || "Result") :
+      r.status === "abandoned" ? "Abandoned" :
+      r.status === "closed" ? "Closed" :
+      timeOf(r.start);
+    a.append(num, info);
+    chips.append(a);
+  }
+  row.append(venue, chips);
+  return row;
+}
+
+let loading = false;
+async function fetchDay() {
+  if (loading) return;
+  loading = true;
+  $("error").hidden = true;
+  try {
+    const resp = await fetch("/api/races?date=" + state.date);
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || "Request failed");
+    state.meetings = data.meetings;
+    state.loaded = true;
+    $("updated").textContent = "Updated " + new Date().toLocaleTimeString();
+    render();
+  } catch (e) {
+    $("error").textContent = e.message;
+    $("error").hidden = false;
+  } finally {
+    loading = false;
+  }
+}
+
+function setDate(iso) {
+  state.date = iso;
+  history.replaceState(null, "", iso === todayISO() ? "/" : "/?date=" + iso);
+  state.meetings = [];
+  state.loaded = false;
+  render();
+  fetchDay();
+}
+function shiftDate(days) {
+  const d = new Date(state.date + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  setDate(localISO(d));
+}
+
+$("prev").onclick = () => shiftDate(-1);
+$("next").onclick = () => shiftDate(1);
+$("today").onclick = () => setDate(todayISO());
+for (const [id, key] of [["type-filter", "type"], ["region-filter", "region"]]) {
+  $(id).addEventListener("click", (e) => {
+    const v = e.target.closest("button")?.dataset.v;
+    if (!v) return;
+    state[key] = v;
+    save("home." + key, v);
+    render();
+    window.dispatchEvent(new Event("jumpbar:filters"));  // the top bar follows these filters
+  });
+}
+$("form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  location.href = "/race?race=" + encodeURIComponent($("source").value.trim());
+});
+$("source").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("form").requestSubmit(); }
+});
+
+// Refresh race statuses every minute (the top bar keeps its own countdowns).
+setInterval(() => { if (state.date === todayISO()) fetchDay(); }, 60000);
+
+render();
+fetchDay();
+</script>
+</body>
+</html>

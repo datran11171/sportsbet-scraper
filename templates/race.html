@@ -4,70 +4,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Race Prices</title>
-<style>
-  :root {
-    --bg: #f6f7f9; --card: #fff; --text: #1b1f24; --muted: #66707a;
-    --border: #e1e4e8; --accent: #0b63ce; --accent-text: #fff;
-    --up: #c62828; --down: #2e7d32; --fav: #fff7d6; --error-bg: #fdecea; --error: #b3261e;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #111418; --card: #1a1e24; --text: #e6e8eb; --muted: #9aa3ad;
-      --border: #2c323a; --accent: #4c9bff; --accent-text: #0b1220;
-      --up: #ff6b6b; --down: #5fd38a; --fav: #3a3420; --error-bg: #3b1d1b; --error: #ffb4ab;
-    }
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text);
-         font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-  main { max-width: 1200px; margin: 0 auto; padding: 24px 16px 48px; }
-  h1 { font-size: 22px; margin: 0 0 4px; }
-  .sub { color: var(--muted); margin: 0 0 20px; }
-  form { display: flex; gap: 8px; flex-wrap: wrap; }
-  textarea { flex: 1 1 420px; min-height: 44px; resize: vertical; padding: 10px 12px;
-             border: 1px solid var(--border); border-radius: 8px; background: var(--card);
-             color: var(--text); font: inherit; }
-  button { padding: 0 18px; min-height: 44px; border: 0; border-radius: 8px; cursor: pointer;
-           background: var(--accent); color: var(--accent-text); font: inherit; font-weight: 600; }
-  button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--border); }
-  button:disabled { opacity: .55; cursor: default; }
-  .error { margin-top: 16px; padding: 10px 14px; border-radius: 8px;
-           background: var(--error-bg); color: var(--error); white-space: pre-wrap; }
-  .card { margin-top: 20px; background: var(--card); border: 1px solid var(--border);
-          border-radius: 10px; overflow: hidden; }
-  .race-head { padding: 14px 16px; border-bottom: 1px solid var(--border);
-               display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-  .race-head h2 { margin: 0; font-size: 18px; }
-  .race-head .meta { color: var(--muted); font-size: 13px; }
-  .controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
-  .controls button { min-height: 32px; padding: 0 12px; font-size: 13px; }
-  .table-wrap { overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-  th, td { padding: 9px 12px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--border); }
-  th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
-       cursor: pointer; user-select: none; }
-  th.num, td.num { text-align: right; }
-  th .arrow { opacity: .7; }
-  td.price { font-weight: 600; }
-  tr.fav td { background: var(--fav); }
-  tr.scr td { color: var(--muted); text-decoration: line-through; }
-  tr.scr td.status { text-decoration: none; }
-  .move-up { color: var(--up); }
-  .move-down { color: var(--down); }
-  .legend { padding: 10px 16px; font-size: 12px; color: var(--muted); }
-  .badge { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px;
-           font-size: 12px; font-weight: 600; vertical-align: middle;
-           background: var(--accent); color: var(--accent-text); }
-  .sub-head { margin: 0; padding: 14px 16px 6px; font-size: 14px; }
-  tr.win td { background: var(--fav); font-weight: 600; }
-  #results-table th { cursor: default; }
-  #exotics-table th { cursor: default; }
-</style>
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
+{% include "_jumpbar.html" %}
 <main>
-  <h1>Race Prices</h1>
-  <p class="sub">Paste a Sportsbet race link (or a copied cURL command) to see every runner's price.</p>
+  <header class="topbar">
+    <a class="home-btn" href="/">⌂ Home</a>
+    <h1>Race Prices</h1>
+  </header>
+  <p class="sub">Paste a Sportsbet race link (or a copied cURL command) to see every runner's price,
+    or pick a race from <a href="/">today's races</a>.</p>
 
   <form id="form">
     <textarea id="source" rows="1" placeholder="https://www.sportsbet.com.au/horse-racing/australia-nz/mornington/race-2-11139920" required></textarea>
@@ -80,7 +28,7 @@
     <div class="race-head">
       <div>
         <h2>Result <span class="badge">Resulted</span></h2>
-        <div class="meta">Finishing order with starting price (SP), Sportsbet fixed odds and tote dividends</div>
+        <div class="meta">Finishing order with starting price (SP), Sportsbet fixed odds, tote dividends and Betfair SP</div>
       </div>
     </div>
     <div class="table-wrap"><table id="results-table"></table></div>
@@ -95,6 +43,7 @@
       <div>
         <h2 id="race-title"></h2>
         <div class="meta" id="race-meta"></div>
+        <div class="bf-status" id="bf-status" hidden></div>
       </div>
       <div class="controls">
         <span id="updated"></span>
@@ -109,6 +58,7 @@
       </table>
     </div>
     <div class="legend">Win / Place = Sportsbet fixed odds · Tote = tote win price ·
+      Back / Lay = best Betfair Exchange price with $ available · BSP = Betfair starting price ·
       <span class="move-up">▲</span> drifting <span class="move-down">▼</span> firming since last refresh ·
       <span id="legend-fav">highlighted row = favourite</span></div>
   </section>
@@ -119,12 +69,15 @@ const COLUMNS = [
   { key: "No", label: "No", num: true },
   { key: "Runner", label: "Runner" },
   { key: "Barrier", label: "Bar", num: true },
-  { key: "Jockey/Driver", label: "Jockey / Driver" },
-  { key: "Trainer", label: "Trainer" },
+  { key: "Jockey/Driver", label: "Jockey / Driver", optional: true },
+  { key: "Trainer", label: "Trainer", optional: true },
   { key: "Weight", label: "Wt" },
   { key: "Win", label: "Win", num: true, price: true },
   { key: "Place", label: "Place", num: true, price: true },
   { key: "Tote", label: "Tote", num: true, price: true },
+  { key: "Back", label: "Back", price: true, bf: "back", size: "BackSize" },
+  { key: "Lay", label: "Lay", price: true, bf: "lay", size: "LaySize" },
+  { key: "BSP", label: "BSP", num: true, price: true },
   { key: "Status", label: "Status" },
 ];
 
@@ -132,13 +85,14 @@ const RESULT_COLUMNS = [
   { key: "Pos", label: "Pos" },
   { key: "No", label: "No", num: true },
   { key: "Runner", label: "Runner" },
-  { key: "Jockey/Driver", label: "Jockey / Driver" },
-  { key: "Trainer", label: "Trainer" },
+  { key: "Jockey/Driver", label: "Jockey / Driver", optional: true },
+  { key: "Trainer", label: "Trainer", optional: true },
   { key: "SP", label: "SP", num: true, price: true },
   { key: "Fixed Win", label: "Fixed Win", num: true, price: true },
   { key: "Fixed Place", label: "Fixed Place", num: true, price: true },
   { key: "Tote Win", label: "Tote Win", num: true, price: true },
   { key: "Tote Place", label: "Tote Place", num: true, price: true },
+  { key: "BSP", label: "Betfair SP", num: true, price: true, optional: true },
 ];
 
 const EXOTIC_COLUMNS = [
@@ -149,6 +103,8 @@ const EXOTIC_COLUMNS = [
 
 // Build a simple (non-sortable) table from rows of data.
 function fillTable(table, columns, rows, rowClass = () => "") {
+  // Drop optional columns with nothing in them (e.g. no jockeys for greyhounds, no BSP).
+  columns = columns.filter(c => !c.optional || rows.some(r => r[c.key] != null && r[c.key] !== ""));
   const head = document.createElement("tr");
   for (const c of columns) {
     const th = document.createElement("th");
@@ -251,8 +207,17 @@ function render() {
   $("race-meta").textContent = bits.join(" · ");
   $("updated").textContent = "Updated " + new Date(fetched).toLocaleTimeString();
 
+  const bf = current.betfair || {};
+  renderBetfairStatus(bf);
   const hasTote = runners.some(r => r.Tote != null);
-  const cols = COLUMNS.filter(c => c.key !== "Tote" || hasTote);
+  // Back/Lay only while Betfair has prices (a closed market has none).
+  const hasBetfair = Boolean(bf.marketName) && runners.some(r => r.Back != null || r.Lay != null);
+  const hasBsp = runners.some(r => r.BSP != null);
+  const cols = COLUMNS.filter(c =>
+    (c.key !== "Tote" || hasTote) &&
+    (!c.bf || hasBetfair) &&
+    (c.key !== "BSP" || hasBsp) &&
+    (!c.optional || runners.some(r => r[c.key])));
 
   // Header
   const head = $("head");
@@ -260,6 +225,7 @@ function render() {
     const th = document.createElement("th");
     th.textContent = c.label;
     if (c.num) th.className = "num";
+    if (c.bf) th.className = "bf-head";
     if (sort.key === c.key) {
       const a = document.createElement("span");
       a.className = "arrow";
@@ -302,6 +268,16 @@ function render() {
       if (c.price) {
         classes.push("price");
         td.textContent = fmtPrice(r[c.key]);
+        let sizeSpan = null;
+        if (c.bf) {
+          // Betfair-style cell: price on top, $ available underneath.
+          classes.push("bf", r[c.key] == null ? "empty" : "bf-" + c.bf);
+          if (r[c.size] != null) {
+            sizeSpan = document.createElement("span");
+            sizeSpan.className = "size";
+            sizeSpan.textContent = "$" + Math.round(r[c.size]).toLocaleString();
+          }
+        }
         const old = previous[r.Runner]?.[c.key];
         if (old != null && r[c.key] != null && old !== r[c.key]) {
           const m = document.createElement("span");
@@ -311,6 +287,7 @@ function render() {
           m.title = "was " + fmtPrice(old);
           td.append(m);
         }
+        if (sizeSpan) td.append(sizeSpan);
       } else {
         td.textContent = r[c.key] ?? "";
       }
@@ -322,6 +299,29 @@ function render() {
 
   $("legend-fav").textContent = resulted ? "highlighted row = winner" : "highlighted row = favourite";
   renderResults();
+}
+
+// One line under the race title saying which Betfair market is shown, or why not.
+function renderBetfairStatus(bf) {
+  const el = $("bf-status");
+  el.hidden = false;
+  el.className = "bf-status";
+  if (bf.error) {
+    el.classList.add("warn");
+    el.textContent = bf.error;
+    return;
+  }
+  const bits = ["Betfair: " + bf.marketName];
+  if (bf.matched) bits.push("$" + Math.round(bf.matched).toLocaleString() + " matched");
+  if (bf.inplay) bits.push("In-play");
+  if (bf.status && bf.status !== "OPEN") bits.push(bf.status.toLowerCase());
+  el.textContent = bits.join(" · ") + " · ";
+  const a = document.createElement("a");
+  a.href = bf.url;
+  a.target = "_blank";
+  a.rel = "noopener";
+  a.textContent = "open on Betfair ↗";
+  el.append(a);
 }
 
 $("form").addEventListener("submit", (e) => {
