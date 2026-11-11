@@ -482,7 +482,7 @@ function renderBetfairStatus(bf) {
   }
   const bits = ["Betfair: " + bf.marketName];
   if (bf.matched) bits.push("$" + Math.round(bf.matched).toLocaleString() + " matched");
-  if (bf.inplay) bits.push("In-play");
+  if (bf.inplay && bf.status !== "CLOSED") bits.push("In-play");  // Betfair leaves in-play set after closing
   if (bf.status && bf.status !== "OPEN") bits.push(bf.status.toLowerCase());
   el.textContent = bits.join(" · ") + " · ";
   const a = document.createElement("a");

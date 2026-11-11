@@ -18,7 +18,7 @@
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text);
        font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-main { max-width: 1200px; margin: 0 auto; padding: 24px 16px 48px; }
+main { max-width: 1480px; margin: 0 auto; padding: 24px 16px 48px; }
 h1 { font-size: 22px; margin: 0 0 4px; }
 .sub { color: var(--muted); margin: 0 0 20px; }
 form { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -119,7 +119,7 @@ a { color: var(--accent); }
 /* ---- "Next to jump" bar, stuck to the top of every page ---- */
 .jumpbar { position: sticky; top: 0; z-index: 20; background: var(--card);
            border-bottom: 1px solid var(--border); box-shadow: 0 2px 8px rgba(0, 0, 0, .12); }
-.jumpbar-inner { max-width: 1200px; margin: 0 auto; padding: 8px 16px;
+.jumpbar-inner { max-width: 1480px; margin: 0 auto; padding: 8px 16px;
                  display: flex; align-items: center; gap: 12px; }
 .jumpbar-label { flex: 0 0 auto; font-size: 13px; font-weight: 700; white-space: nowrap; }
 .jumpbar-filters { flex: 0 0 auto; display: flex; gap: 6px; }
