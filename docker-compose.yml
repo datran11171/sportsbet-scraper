@@ -1,0 +1,31 @@
+# MySQL database for saved race results, BSP, comments and price fluctuations.
+#
+#   docker compose up -d      # start (first run downloads MySQL and creates the database)
+#   docker compose stop       # stop
+#   docker compose down       # remove the container (data is kept in the volume)
+#   docker compose down -v    # remove the container AND all saved data
+#
+# Passwords come from .env (git-ignored). The app creates its tables itself.
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: sportsbet-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-racing}
+      MYSQL_USER: ${MYSQL_USER:-racing}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD in .env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}
+      TZ: UTC
+    ports:
+      - "127.0.0.1:${MYSQL_PORT:-3306}:3306"   # only reachable from this computer
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  mysql-data:

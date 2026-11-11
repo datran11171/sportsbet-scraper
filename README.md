@@ -20,6 +20,7 @@ key and login.
 - [Quick start](#quick-start)
 - [Betfair setup (optional)](#betfair-setup-optional)
 - [Using the app](#using-the-app)
+- [Results database (MySQL)](#results-database-mysql)
 - [Command-line tool](#command-line-tool)
 - [How it works](#how-it-works)
 - [Project structure](#project-structure)
@@ -187,6 +188,110 @@ such as some smaller US tracks, say so.
 
 ---
 
+## Results database (MySQL)
+
+The app can save every resulted race to a MySQL database. That includes:
+
+- results and dividends
+- the Betfair SP
+- runner and race comments
+- each runner's price fluctuations
+
+This builds up a history you can query. It's optional: without MySQL the app works the same, it just doesn't save anything.
+
+### Setup
+
+MySQL runs in Docker, so you need [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and open.
+
+1. **Add database settings to `.env`.** Pick your own passwords:
+
+   ```ini
+   MYSQL_HOST=127.0.0.1
+   MYSQL_PORT=3306
+   MYSQL_DATABASE=racing
+   MYSQL_USER=racing
+   MYSQL_PASSWORD=choose-a-password
+   MYSQL_ROOT_PASSWORD=choose-another-password
+   ```
+
+2. **Start the database:**
+
+   ```bash
+   docker compose up -d       # first run downloads MySQL 8.4 and creates the database
+   ```
+
+   It only listens on `127.0.0.1`, so it can't be reached from other computers. Its data
+   lives in a Docker volume and survives restarts. `docker compose stop` stops it, and
+   `docker compose down -v` deletes it **including all saved data**.
+
+3. **Start the app** as usual. It creates the tables and then, **every 5 minutes**,
+   saves any newly resulted races from today and yesterday. You'll see
+   `Saving resulted races to MySQL every 5 minutes` when it starts.
+
+### Saving by hand / backfilling
+
+```bash
+.venv/bin/python db.py save              # save today's and yesterday's resulted races now
+.venv/bin/python db.py save --days 7     # backfill the last week (Sportsbet keeps about a week)
+.venv/bin/python db.py stats             # counts per table and BSP status
+```
+
+Backfilled races get results, comments and price history. They only get **BSP if the app
+saved their Betfair market while it was open** (see
+[Getting BSP for resulted races](#getting-bsp-for-resulted-races)).
+
+### Tables
+
+| Table | One row per | Main columns |
+|---|---|---|
+| `races` | race | `race_id` (Sportsbet event id), `race_date`, `venue`, `race_type`, `region`, `race_number`, `distance_m`, `start_time_utc`, `race_comment`, `betfair_market_id`, `bsp_status` |
+| `runners` | runner in a race | `finish_position`, `runner_name`, `barrier`, `jockey`, `trainer`, `weight_kg`, `scratched`, `open_price`, `fixed_win`, `fixed_place`, `sportsbet_sp`, `tote_win`, `tote_place`, `bsp`, `runner_comment` |
+| `price_fluctuations` | price move | `race_id`, `runner_number`, `seq` (0 = opening price), `price` |
+| `exotic_results` | exotic bet | `bet_type` (Quinella, Exacta, Trifecta, First 4), `runners` (e.g. `6-2-11`), `dividend` |
+
+`sportsbet_sp` and the tote dividends only exist for placegetters, because that's all
+Sportsbet publishes. `fixed_win` is every runner's final fixed price.
+
+**`bsp_status`** says whether a race has BSP:
+
+| Value | Meaning |
+|---|---|
+| `ok` | BSP saved |
+| `pending` | Betfair market found but BSP not settled yet (or Betfair errored). Retried each run for up to 24 hours, then `missing`. |
+| `not_saved` | Betfair has markets at this venue, but this race closed before the app saved its market |
+| `not_found` | No Betfair market seen at this venue. Either Betfair doesn't cover it, or the app wasn't running while its markets were open. |
+| `no_betfair` | Betfair isn't set up in `.env` |
+
+### Example queries
+
+```sql
+-- Winners: Sportsbet SP vs Betfair SP
+SELECT r.race_date, r.venue, r.race_number, u.runner_name, u.sportsbet_sp, u.bsp
+FROM runners u JOIN races r USING (race_id)
+WHERE u.finish_position = 1 AND u.bsp IS NOT NULL
+ORDER BY r.start_time_utc DESC;
+
+-- How often the Sportsbet favourite (lowest final fixed price) wins, by race type
+SELECT r.race_type, AVG(u.finish_position = 1) AS fav_win_rate, COUNT(*) AS races
+FROM races r
+JOIN runners u ON u.race_id = r.race_id AND NOT u.scratched
+WHERE u.fixed_win = (SELECT MIN(fixed_win) FROM runners x WHERE x.race_id = r.race_id AND NOT x.scratched)
+GROUP BY r.race_type;
+
+-- One runner's price history, oldest first
+SELECT seq, price FROM price_fluctuations
+WHERE race_id = 11143279 AND runner_number = 4 ORDER BY seq;
+```
+
+To browse the data in a GUI such as TablePlus, DBeaver or MySQL Workbench, connect to
+`127.0.0.1:3306` with `MYSQL_USER` / `MYSQL_PASSWORD` from `.env`. From the terminal:
+
+```bash
+docker exec -it sportsbet-mysql mysql -u racing -p racing    # asks for MYSQL_PASSWORD
+```
+
+---
+
 ## Command-line tool
 
 `sportsbet_prices.py` works on its own with plain `python3` (no Flask, no Betfair):
@@ -282,6 +387,8 @@ by name instead.
 app.py                 Flask web app: pages, JSON API, background Betfair market saver
 sportsbet_prices.py    Sportsbet client + command-line tool (standard library only)
 betfair.py             Betfair client: login, market matching, prices, BSP, saved markets
+db.py                  MySQL storage of resulted races + `db.py save/stats` command
+docker-compose.yml     Runs MySQL 8.4 in Docker
 templates/
   home.html            Home page (race list)
   race.html            Race page (prices, Betfair, results)
@@ -290,7 +397,7 @@ static/
   style.css            Shared styles (light and dark mode)
   jumpbar.js           "Next to jump" bar logic
 docs/screenshots/      Images used in this README
-requirements.txt       Python dependencies (Flask)
+requirements.txt       Python dependencies (Flask, PyMySQL)
 .env                   Your Betfair settings (git-ignored, you create it)
 data/                  Saved Betfair markets (git-ignored, created automatically)
 ```
@@ -334,6 +441,8 @@ curl -X POST http://127.0.0.1:5050/api/prices \
 | "No matching Betfair market found" | Betfair may not list that race, or the venue is spelled very differently on the two sites. |
 | "No Betfair BSP for this race" | The race closed before the app saved its Betfair market. Keep the app running on race day. |
 | Betfair prices look worse than the website | Markets far from the jump are thin and genuinely have wide gaps. A delayed app key can also lag the live market. |
+| "MySQL not reachable … is it running?" when the app starts | Open Docker Desktop, then run `docker compose up -d`. The app keeps working without the database. |
+| `docker compose up` says "set MYSQL_PASSWORD in .env" | Add the `MYSQL_*` settings to `.env` (see [Results database](#results-database-mysql)). |
 | "Couldn't load races from Sportsbet" on an old date | Sportsbet only keeps about a week of past race days. |
 | Home page shows the wrong day late at night | "Today" is your computer's date. Use Australian time to match Sportsbet's racing day. |
 

@@ -18,6 +18,7 @@ from pathlib import Path
 from flask import Flask, jsonify, redirect, render_template, request, url_for
 
 from betfair import Betfair, BetfairError
+from db import Database, save_resulted_races
 from sportsbet_prices import extract_results, get_day, get_race
 
 
@@ -57,6 +58,39 @@ def snapshot_loop():
         except (BetfairError, OSError, ValueError) as e:
             app.logger.warning("Betfair snapshot failed: %s", e)
         time.sleep(SNAPSHOT_EVERY)
+
+
+DB_SAVE_EVERY = 5 * 60  # seconds
+
+
+def db_save_loop(db):
+    """Save every resulted race (results, BSP, comments, price history) to MySQL.
+
+    Waits a minute first so the Betfair market snapshot has run.
+    """
+    time.sleep(60)
+    while True:
+        try:
+            count = save_resulted_races(db, betfair if betfair.configured else None)
+            if count:
+                app.logger.info("Saved %d resulted races to MySQL", count)
+        except Exception as e:  # keep the loop alive whatever happens; the next run retries
+            app.logger.warning("Saving races to MySQL failed: %s", e)
+        time.sleep(DB_SAVE_EVERY)
+
+
+def start_db_saver():
+    db = Database.from_env()
+    if db is None:
+        app.logger.info("MySQL not configured (MYSQL_* in .env) - results won't be saved")
+        return
+    try:
+        db.init_schema()
+    except Exception as e:
+        app.logger.warning("MySQL not reachable (%s) - is it running? `docker compose up -d`", e)
+        return
+    app.logger.info("Saving resulted races to MySQL every %d minutes", DB_SAVE_EVERY // 60)
+    threading.Thread(target=db_save_loop, args=(db,), daemon=True).start()
 
 
 def betfair_prices(event, runners, placings):
@@ -160,5 +194,6 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     if betfair.configured:
         threading.Thread(target=snapshot_loop, daemon=True).start()
+    start_db_saver()
     # Port 5000 is used by AirPlay Receiver on macOS, so use 5050.
     app.run(host="127.0.0.1", port=5050, debug=False)

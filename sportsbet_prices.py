@@ -316,6 +316,11 @@ def get_day(date):
     return meetings
 
 
+def get_race_by_id(event_id):
+    """Sportsbet event id -> (event, runners)."""
+    return extract_runners(fetch_json(API_URL.format(event_id=int(event_id)), {}))
+
+
 def get_race(text):
     """Race link or 'Copy as cURL' text -> (event, runners)."""
     text = text.strip()
