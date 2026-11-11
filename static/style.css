@@ -41,7 +41,7 @@ button:disabled { opacity: .55; cursor: default; }
 .controls button { min-height: 32px; padding: 0 12px; font-size: 13px; }
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-th, td { padding: 9px 12px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--border); }
+th, td { padding: 9px 10px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--border); }
 th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
      cursor: pointer; user-select: none; }
 th.num, td.num { text-align: right; }
@@ -122,6 +122,10 @@ a { color: var(--accent); }
 .jumpbar-inner { max-width: 1200px; margin: 0 auto; padding: 8px 16px;
                  display: flex; align-items: center; gap: 12px; }
 .jumpbar-label { flex: 0 0 auto; font-size: 13px; font-weight: 700; white-space: nowrap; }
+.jumpbar-filters { flex: 0 0 auto; display: flex; gap: 6px; }
+.jumpbar-filters select { min-height: 28px; padding: 0 6px; border: 1px solid var(--border); border-radius: 6px;
+                          background: var(--bg); color: var(--text); font: inherit; font-size: 12px; cursor: pointer; }
+.jumpbar-filters select:hover { border-color: var(--accent); }
 .jumpbar-list { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: thin; min-width: 0; }
 .jumpbar-empty { color: var(--muted); font-size: 13px; }
 .jb { flex: 0 0 auto; padding: 4px 10px; border: 1px solid var(--border); border-radius: 7px;
@@ -133,6 +137,8 @@ a { color: var(--accent); }
 .jb.current .when { color: var(--accent-text); }
 @media (max-width: 640px) {
   .jumpbar-label { font-size: 12px; }
+  .jumpbar-inner { flex-wrap: wrap; row-gap: 6px; }
+  .jumpbar-list { flex-basis: 100%; }   /* races on their own line under the label and filters */
 }
 
 /* ---- Runner comments ---- */
@@ -162,3 +168,12 @@ td.flucs { padding-top: 6px; padding-bottom: 6px; }
 .spark .hit:hover { fill: color-mix(in srgb, var(--muted) 25%, transparent); }
 .spark-label { display: block; margin-top: 1px; color: var(--muted); font-size: 11px; font-weight: 400; }
 th.nosort { cursor: default; }
+
+/* ---- EV column and its controls ---- */
+td.ev { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--muted); }
+td.ev.ev-pos { color: var(--text); background: color-mix(in srgb, var(--drift) 22%, transparent); }
+td.ev.ev-wide { opacity: .5; }
+td.ev[title] { cursor: help; }
+.controls select {
+  min-height: 30px; padding: 0 6px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--card); color: var(--text); font: inherit; font-size: 13px; }

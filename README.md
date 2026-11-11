@@ -40,13 +40,19 @@ key and login.
 **"Next to jump" bar**
 - Stays at the top of every page.
 - Shows the next 12 open races with live countdowns, which turn red in the last 2 minutes.
-- Follows the home page filters, and highlights the race you're viewing.
+- Has its own **race type** and **region** dropdowns, available on every page. They share
+  the home page's filters, so changing either one changes both, and your choice is remembered.
+- Highlights the race you're viewing.
 
 **Race page**
 - Every runner, with barrier, jockey/driver, trainer and weight.
 - **Sportsbet** fixed Win/Place odds and the tote win price.
 - **Betfair** best Back (blue) and Lay (pink) prices with the $ available, the same as betfair.com.au shows (virtual/cross-matched prices included).
 - Click any column header to sort. The favourite is highlighted, and scratched runners are struck out and listed last.
+- **EV**: the expected value of a bet at Sportsbet's fixed price, using Betfair's lay price as
+  the true odds. There are four options: **No promo**, **Bonus bet conversion**,
+  **Run 2nd (+5%)** and **Run 2nd / 3rd (+10%)**. Hover a cell to see the working.
+  See [How EV is calculated](#how-ev-is-calculated).
 - **Flucs**: a small graph of each runner's Sportsbet price history from open to now.
   Green steps mean the price drifted (went up) and red steps mean it shortened (went down).
   Hover a point to see that price, and read "open → now" underneath.
@@ -172,6 +178,43 @@ Race statuses update every minute.
 - Click a column header to sort, and click again to reverse.
 - The address bar holds the race link, so you can bookmark or share a race page.
 - You can also paste a **"Copy as cURL"** command from your browser's DevTools instead of a link. This is useful if Sportsbet ever starts requiring browser cookies.
+
+### How EV is calculated
+
+The **EV** column (next to Win) uses Betfair's lay price as the true odds for each runner. It
+only appears when Betfair has live prices. Choose one of four options with the **EV** selector:
+
+| Option | Column shows | Formula |
+|---|---|---|
+| No promo | EV per $1 cash bet | `p_win × sportsbet_price − 1` |
+| Bonus bet conversion | Share of a bonus bet you'd keep as cash | `p_win × (sportsbet_price − 1)` |
+| Run 2nd | EV per $1 cash bet | no-promo EV **+ 5%** |
+| Run 2nd / 3rd | EV per $1 cash bet | no-promo EV **+ 10%** |
+
+- **`p_win = 1 / Betfair lay price`.** The lay price is used rather than the back price because
+  it's the cautious choice: it gives the runner its highest chance of winning, so it never
+  makes a bet look better than it is.
+- **The Run 2nd and Run 2nd / 3rd promos add a fixed 5% and 10%** on top of the no-promo EV.
+  They're set as `PROMO_BOOST` in `templates/race.html`, so you can adjust them there.
+- **Bonus bet conversion** is for placing a bonus bet, whose stake isn't returned:
+  - You only get the winnings, `sportsbet_price − 1`, if the runner wins.
+  - **75%** means a $100 bonus bet is worth about $75 cash on average.
+  - Longer-priced runners usually convert better. The best runner is highlighted.
+- **EV highlighting:** `+5.0%` means about $5 profit per $100 staked over many such bets.
+  Positive EV cells are highlighted.
+- **Faded** cells mean the Betfair back/lay gap is over 25%, so the market is too thin for
+  the estimate to mean much. Faded runners are never highlighted.
+- **Hover any cell** to see its working: Sportsbet vs lay price, win chance, what the promo
+  adds, and $ per $100.
+
+Your choice is remembered in your browser. Things the EV doesn't account for:
+
+- promo refund caps (e.g. "up to $50")
+- Sportsbet's eligibility rules (e.g. which races qualify)
+- prices moving after you look
+
+The bonus conversion is the *expected* value. Matched bettors who also lay on Betfair to lock in
+a result get a slightly different, fixed figure, because Betfair commission is charged on that lay.
 
 ### Getting BSP for resulted races
 
@@ -461,5 +504,7 @@ curl -X POST http://127.0.0.1:5050/api/prices \
   to the internet. Keep request rates modest: the app caches the race list for 30
   seconds and refreshes prices at most every 30 seconds. Check Sportsbet's and
   Betfair's terms of use before relying on it.
+- **EV is an estimate.** It's only as good as the Betfair market it's based on, and the
+  promo maths uses an approximate model. A positive EV is not a guaranteed profit.
 - **Not betting advice.** Prices can be delayed or wrong. Always confirm on the
   bookmaker or exchange before betting, and gamble responsibly.

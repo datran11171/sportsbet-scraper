@@ -48,6 +48,14 @@
       </div>
       <div class="controls">
         <span id="updated"></span>
+        <label class="toggle" title="How the EV column is calculated">EV
+          <select id="ev-promo">
+            <option value="none">No promo</option>
+            <option value="bonus">Bonus bet conversion</option>
+            <option value="2nd">Run 2nd (+5%)</option>
+            <option value="2nd3rd">Run 2nd / 3rd (+10%)</option>
+          </select>
+        </label>
         <label class="toggle"><input type="checkbox" id="comments" checked> Comments</label>
         <label><input type="checkbox" id="auto"> Auto-refresh 30s</label>
         <button class="secondary" id="refresh" type="button">Refresh</button>
@@ -63,6 +71,9 @@
       Back / Lay = best Betfair Exchange price with $ available · BSP = Betfair starting price ·
       <span class="move-up">▲</span> drifting <span class="move-down">▼</span> shortening since last refresh ·
       <span id="legend-fav">highlighted row = favourite</span> ·
+      EV = expected return of backing at the Sportsbet price, using Betfair lay as the true odds
+      (Run 2nd +5%, Run 2nd/3rd +10%; Bonus conv. = share of a bonus bet you'd keep, best highlighted;
+      faded = Betfair spread too wide to trust; hover for the working) ·
       Flucs = Sportsbet fixed-win price history, open → now
       (<span class="move-up">green</span> = drifting / price up, <span class="move-down">red</span> = shortening / price down)</div>
   </section>
@@ -77,6 +88,7 @@ const COLUMNS = [
   { key: "Trainer", label: "Trainer", optional: true },
   { key: "Weight", label: "Wt" },
   { key: "Win", label: "Win", num: true, price: true },
+  { key: "EV", label: "EV", num: true, ev: true },  // value of backing the Win price, vs Betfair lay
   { key: "Place", label: "Place", num: true, price: true },
   { key: "Tote", label: "Tote", num: true, price: true },
   { key: "Flucs", label: "Flucs", spark: true, nosort: true },
@@ -158,6 +170,65 @@ let timer = null;
 let loading = false;
 
 function fmtPrice(v) { return v == null ? "–" : Number(v).toFixed(2); }
+
+// ---------------------------------------------------------------------------
+// Expected value (EV) of a bet at Sportsbet's fixed win price, using Betfair's
+// lay price as the "true" odds:  p_win = 1 / lay  (lay, not back: the cautious estimate)
+//
+//   No promo:              EV = p_win × sportsbet − 1
+//   Run 2nd:               EV = no-promo EV + 5%
+//   Run 2nd / 3rd:         EV = no-promo EV + 10%
+//   Bonus bet conversion:  p_win × (sportsbet − 1)
+//       (a bonus bet's stake isn't returned, so this is the share of the
+//        bonus bet you'd expect to get back as cash, e.g. 0.75 = 75%)
+// ---------------------------------------------------------------------------
+const WIDE_SPREAD = 1.25;  // lay more than 25% above back: market too thin to trust
+const PROMO_BOOST = { "2nd": 0.05, "2nd3rd": 0.10 };
+const EV_LABELS = { none: "EV", bonus: "Bonus conv.", "2nd": "EV (2nd)", "2nd3rd": "EV (2nd/3rd)" };
+
+function evMode() {
+  const v = $("ev-promo").value;
+  return v in EV_LABELS ? v : "none";
+}
+
+// Adds r.EV and r.EVInfo to each runner for the chosen mode.
+function applyEv(runners) {
+  const mode = evMode();
+  const pct = (x) => (x * 100).toFixed(1) + "%";
+  for (const r of runners) { r.EV = null; r.EVInfo = null; }
+
+  for (const r of runners) {
+    if (r.Status === "SCR" || !(r.Win > 1 && r.Lay > 1)) continue;
+    const pWin = 1 / r.Lay;
+    const base = pWin * r.Win - 1;
+    const wide = r.Back > 1 && r.Lay / r.Back > WIDE_SPREAD;
+    const lines = [
+      `Sportsbet ${fmtPrice(r.Win)} vs Betfair lay ${fmtPrice(r.Lay)}`,
+      `Win chance ${pct(pWin)} (1 / lay)`,
+    ];
+    if (mode === "bonus") {
+      r.EV = pWin * (r.Win - 1);
+      lines.push(`Bonus bet conversion = ${pct(pWin)} × (${fmtPrice(r.Win)} − 1) = ${pct(r.EV)}`,
+                 `→ $${(r.EV * 100).toFixed(2)} expected back per $100 bonus bet`);
+    } else {
+      const boost = PROMO_BOOST[mode] || 0;
+      r.EV = base + boost;
+      lines.push(`No-promo EV ${base >= 0 ? "+" : ""}${pct(base)}`);
+      if (boost) lines.push(`Promo adds +${pct(boost)}`);
+      lines.push(`EV ${r.EV >= 0 ? "+" : ""}${pct(r.EV)} → $${(r.EV * 100).toFixed(2)} per $100 staked`);
+    }
+    if (wide) lines.push(`⚠ Wide Betfair spread (back ${fmtPrice(r.Back)} / lay ${fmtPrice(r.Lay)}): unreliable`);
+    r.EVInfo = { wide, text: lines.join("\n") };
+  }
+
+  // Bonus conversion is always positive, so highlight the best runner instead of every positive one.
+  const trusted = runners.filter(r => r.EV != null && !r.EVInfo.wide);
+  const best = trusted.length ? Math.max(...trusted.map(r => r.EV)) : null;
+  for (const r of runners) {
+    if (r.EV == null) continue;
+    r.EVInfo.good = mode === "bonus" ? (!r.EVInfo.wide && r.EV === best) : r.EV > 0;
+  }
+}
 
 // Sparkline of a runner's Sportsbet price history (oldest → now).
 // Higher price is drawn higher. Each step is coloured by direction:
@@ -272,9 +343,14 @@ function render() {
   const hasBetfair = Boolean(bf.marketName) && runners.some(r => r.Back != null || r.Lay != null);
   const hasBsp = runners.some(r => r.BSP != null);
   const hasFlucs = runners.some(r => (r.Flucs || []).length > 1);
+  // EV needs live lay prices, so only before the race is resulted.
+  const resultedRace = (current.results || []).length > 0;
+  const showEv = hasBetfair && !resultedRace;
+  if (showEv) applyEv(runners);
   const cols = COLUMNS.filter(c =>
     (c.key !== "Tote" || hasTote) &&
     (!c.bf || hasBetfair) &&
+    (!c.ev || showEv) &&
     (c.key !== "BSP" || hasBsp) &&
     (!c.spark || hasFlucs) &&
     (!c.optional || runners.some(r => r[c.key])));
@@ -287,7 +363,7 @@ function render() {
   const head = $("head");
   head.replaceChildren(...cols.map(c => {
     const th = document.createElement("th");
-    th.textContent = c.label;
+    th.textContent = c.ev ? EV_LABELS[evMode()] : c.label;
     if (c.num) th.className = "num";
     if (c.bf) th.className = "bf-head";
     if (c.nosort) {
@@ -336,6 +412,18 @@ function render() {
       if (c.spark) {
         classes.push("flucs");
         if (r.Status !== "SCR" && (r.Flucs || []).length > 1) td.append(...sparkline(r.Flucs));
+      } else if (c.ev) {
+        classes.push("ev");
+        if (r.EV == null) {
+          td.textContent = "–";
+        } else {
+          const pct = r.EV * 100;
+          const sign = evMode() !== "bonus" && pct > 0 ? "+" : "";  // conversion is a share, not a gain
+          td.textContent = sign + pct.toFixed(1) + "%";
+          if (r.EVInfo.good) classes.push("ev-pos");
+          if (r.EVInfo.wide) classes.push("ev-wide");
+          td.title = r.EVInfo.text;
+        }
       } else if (c.price) {
         classes.push("price");
         td.textContent = fmtPrice(r[c.key]);
@@ -413,6 +501,14 @@ $("source").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("form").requestSubmit(); }
 });
 $("refresh").onclick = () => current && load(current.source, { keepHistory: true });
+// EV option, remembered in this browser.
+try { $("ev-promo").value = localStorage.getItem("ev.promo") || "none"; } catch {}
+if (!$("ev-promo").value) $("ev-promo").value = "none";  // a saved option that no longer exists
+$("ev-promo").addEventListener("input", () => {
+  try { localStorage.setItem("ev.promo", $("ev-promo").value); } catch {}
+  if (current) render();
+});
+
 // Comments on/off, remembered in this browser (fine if storage is blocked).
 try { $("comments").checked = localStorage.getItem("race.comments") !== "off"; } catch {}
 $("comments").onchange = (e) => {

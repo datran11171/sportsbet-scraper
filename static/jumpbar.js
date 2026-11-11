@@ -39,8 +39,25 @@
     return m ? Number(m[1]) : null;
   }
 
+  // The bar's own dropdowns. They share the home page's saved filters, so changing
+  // either one changes both (the home page listens for "home:filters").
+  const typeSelect = document.getElementById("jumpbar-type");
+  const regionSelect = document.getElementById("jumpbar-region");
+  function onFilterChange() {
+    try {
+      localStorage.setItem("home.type", typeSelect.value);
+      localStorage.setItem("home.region", regionSelect.value);
+    } catch {}
+    render();
+    window.dispatchEvent(new Event("home:filters"));
+  }
+  typeSelect?.addEventListener("change", onFilterChange);
+  regionSelect?.addEventListener("change", onFilterChange);
+
   function render() {
     const { type, region } = filters();
+    if (typeSelect) typeSelect.value = type;
+    if (regionSelect) regionSelect.value = region;
     const current = currentRaceId();
     const shown = races
       .filter(({ meeting }) =>

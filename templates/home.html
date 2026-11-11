@@ -210,6 +210,13 @@ $("source").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("form").requestSubmit(); }
 });
 
+// The top bar's dropdowns change the same saved filters; follow them here too.
+window.addEventListener("home:filters", () => {
+  state.type = load("home.type", "all");
+  state.region = load("home.region", "all");
+  render();
+});
+
 // Refresh race statuses every minute (the top bar keeps its own countdowns).
 setInterval(() => { if (state.date === todayISO()) fetchDay(); }, 60000);
 

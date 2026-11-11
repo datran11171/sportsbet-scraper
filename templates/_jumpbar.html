@@ -2,6 +2,19 @@
 <nav class="jumpbar" id="jumpbar" aria-label="Next to jump">
   <div class="jumpbar-inner">
     <span class="jumpbar-label">Next to jump</span>
+    <div class="jumpbar-filters">
+      <select id="jumpbar-type" aria-label="Race type">
+        <option value="all">All types</option>
+        <option value="horse">Horses</option>
+        <option value="greyhound">Greyhounds</option>
+        <option value="harness">Harness</option>
+      </select>
+      <select id="jumpbar-region" aria-label="Region">
+        <option value="all">All regions</option>
+        <option value="aus">Aus / NZ</option>
+        <option value="intl">International</option>
+      </select>
+    </div>
     <div class="jumpbar-list" id="jumpbar-list"><span class="jumpbar-empty">Loading…</span></div>
   </div>
 </nav>
