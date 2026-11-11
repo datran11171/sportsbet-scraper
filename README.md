@@ -81,9 +81,15 @@ Betfair and the database are optional extras.
   - the **Betfair SP**
 - **Exotics**: Quinella, Exacta, Trifecta and First 4 dividends.
 
-### Results database
+### Results database and Results page
 - Every finished race saved to **MySQL** automatically, every 5 minutes, while the app runs.
 - Stores results, dividends, BSP, comments and full price histories, ready for SQL analysis.
+- A **Results** page (button at the top of every page) to browse it:
+  - filter by date range, race type, region and venue
+  - search by runner, jockey or trainer
+  - limit to races with BSP
+  - click a race for its full field
+  - **download** the matching races as CSV
 
 ### Command-line tool
 - Prints a race's prices and results in the terminal, or saves them as CSV, using plain `python3`.
@@ -114,7 +120,14 @@ The bar is filtered here to **Greyhounds** and **Aus / NZ**. The same choice app
 ![EV column in bonus bet conversion mode](docs/screenshots/race-bonus.png)
 
 In **Bonus bet conversion** mode, the column shows how much of a bonus bet you'd expect to keep
-as cash. The best runner (here Palm Tree, 62.5%) is highlighted.
+as cash. The best runner (here Snitzel A'La Rouge, 71.4%) is highlighted.
+
+### Results page: browsing the database
+![Results page with a race expanded to show its full field](docs/screenshots/results.png)
+
+Every saved race, filtered here to races with a Betfair SP. Clicking a race opens its full
+field: placings, jockey and trainer, price movement, fixed/SP/tote prices, BSP and comments,
+plus exotics.
 
 ### Finished race: results, dividends and Betfair SP
 ![Resulted race with result table, exotics and BSP](docs/screenshots/race-resulted.png)
@@ -285,7 +298,8 @@ SELECT seq, price FROM price_fluctuations
 WHERE race_id = 11143279 AND runner_number = 4 ORDER BY seq;
 ```
 
-**Browsing the data:** connect a GUI such as TablePlus, DBeaver or MySQL Workbench to
+**Browsing the data:** the easiest way is the app's own [Results page](#results-page-results).
+For your own SQL, connect a GUI such as TablePlus, DBeaver or MySQL Workbench to
 `127.0.0.1:3306` with `MYSQL_USER` / `MYSQL_PASSWORD`, or use the terminal:
 
 ```bash
@@ -307,6 +321,34 @@ docker exec -it sportsbet-mysql mysql -u racing -p racing    # asks for MYSQL_PA
 | Link box | Paste any Sportsbet race link, or a "Copy as cURL" command, to open it |
 
 The race list refreshes every minute.
+
+### Results page (`/results`)
+
+Needs the [results database](#results-database-mysql).
+
+| Control | What it does |
+|---|---|
+| **From / To** | Date range (defaults to the last 7 days) |
+| **Type / Region / Venue** | Narrow the races |
+| **Runner / jockey / trainer** | Races where any runner, jockey or trainer matches |
+| **With BSP only** | Only races that have a Betfair SP |
+| Race row | Click (or press Enter) to show or hide the full field, comments and exotics |
+| **Load more** | Shows the next 100 races |
+| **Download CSV** | Every runner in the matching races, including comments and price history |
+
+The list shows each race's winner with their fixed price, Sportsbet SP, tote and BSP, the
+field size, and a **Betfair** label:
+
+| Label | Meaning |
+|---|---|
+| BSP | BSP saved |
+| Pending | BSP not settled yet |
+| Missed | Race closed before its market was saved |
+| No market | No Betfair market seen at the venue |
+| Missing | No BSP after 24 hours |
+| Off | Betfair isn't set up |
+
+The filters are kept in the address bar, so a search can be bookmarked.
 
 ### Race page (`/race?race=<sportsbet link>`)
 
@@ -509,6 +551,7 @@ docker-compose.yml     Runs MySQL 8.4 in Docker
 templates/
   home.html            Home page: race list and filters
   race.html            Race page: prices, EV, Flucs, comments, Betfair, results
+  results.html         Results page: browse and export the MySQL database
   _jumpbar.html        "Next to jump" bar included on every page
 static/
   style.css            Shared styles (light and dark mode)
@@ -553,6 +596,15 @@ curl -X POST http://127.0.0.1:5050/api/prices \
 
 EV isn't in the API. The race page works it out in the browser from `Win`, `Back` and `Lay`.
 
+**Saved results** (needs MySQL). These take the same filters as the Results page: `from`, `to`,
+`type`, `region`, `venue`, `search`, `bsp=1`.
+
+```bash
+curl "http://127.0.0.1:5050/api/results?from=2026-11-11&bsp=1"   # races + winners, 100 per page (&offset=100 …)
+curl "http://127.0.0.1:5050/api/results/11143279"                # one race: all runners, flucs, exotics
+curl -o results.csv "http://127.0.0.1:5050/api/results.csv?venue=Randwick"
+```
+
 ---
 
 ## Troubleshooting
@@ -568,6 +620,7 @@ EV isn't in the API. The race page works it out in the browser from `Win`, `Back
 | "No Betfair BSP for this race" | The race closed before the app saved its Betfair market. Keep the app running on race day. |
 | Betfair prices look worse than the website | Markets far from the jump are thin and genuinely wide. A delayed app key can also lag. |
 | "MySQL not reachable … is it running?" | Open Docker Desktop, then run `docker compose up -d`. The app keeps working without the database. |
+| Results page: "Can't reach the results database" | Docker Desktop or the database isn't running. Open Docker Desktop, then run `docker compose up -d`. |
 | `docker compose up` says "set MYSQL_PASSWORD in .env" | Add the `MYSQL_*` settings to `.env`. |
 | Race table needs a sideways scroll | It's wide. It fits fully at about 1,440px; scroll sideways on smaller screens. |
 | "Couldn't load races from Sportsbet" on an old date | Sportsbet keeps only about a week of past race days. |

@@ -226,6 +226,95 @@ class Database:
                 [(event["id"], x["Bet"], x["Runners"], x["Dividend"]) for x in exotics])
             conn.commit()
 
+    # ------------------------------------------------------------------ #
+    # Reading, for the Results page
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _where(filters):
+        """SQL WHERE clause + params from the Results page filters (all optional)."""
+        clauses, params = [], []
+        if filters.get("date_from"):
+            clauses.append("r.race_date >= %s"); params.append(filters["date_from"])
+        if filters.get("date_to"):
+            clauses.append("r.race_date <= %s"); params.append(filters["date_to"])
+        if filters.get("type") in ("horse", "greyhound", "harness"):
+            clauses.append("r.race_type = %s"); params.append(filters["type"])
+        if filters.get("region") == "aus":
+            clauses.append("NOT r.international")
+        elif filters.get("region") == "intl":
+            clauses.append("r.international")
+        if filters.get("venue"):
+            clauses.append("r.venue LIKE %s"); params.append(f"%{filters['venue']}%")
+        if filters.get("search"):
+            clauses.append("""EXISTS (SELECT 1 FROM runners x WHERE x.race_id = r.race_id
+                              AND (x.runner_name LIKE %s OR x.jockey LIKE %s OR x.trainer LIKE %s))""")
+            params += [f"%{filters['search']}%"] * 3
+        if filters.get("bsp_only"):
+            clauses.append("r.bsp_status = 'ok'")
+        return ("WHERE " + " AND ".join(clauses)) if clauses else "", params
+
+    def find_races(self, filters, limit=100, offset=0):
+        """(total, [race rows with their winner]) newest first."""
+        where, params = self._where(filters)
+        with self.connect() as conn, conn.cursor() as cur:
+            cur.execute(f"SELECT COUNT(*) AS n, SUM(r.bsp_status = 'ok') AS with_bsp FROM races r {where}", params)
+            counts = cur.fetchone()
+            # One winner per race (lowest number if there was a dead heat).
+            cur.execute(f"""
+                SELECT r.race_id, r.race_date, r.venue, r.race_type, r.region, r.international,
+                       r.race_number, r.race_name, r.distance_m, r.start_time_utc, r.bsp_status,
+                       w.runner_number AS winner_no, w.runner_name AS winner, w.jockey AS winner_jockey,
+                       w.trainer AS winner_trainer, w.fixed_win AS winner_fixed, w.sportsbet_sp AS winner_sp,
+                       w.tote_win AS winner_tote, w.bsp AS winner_bsp,
+                       (SELECT COUNT(*) FROM runners x WHERE x.race_id = r.race_id AND NOT x.scratched) AS starters
+                FROM races r
+                LEFT JOIN runners w ON w.race_id = r.race_id AND w.runner_number =
+                     (SELECT MIN(y.runner_number) FROM runners y WHERE y.race_id = r.race_id AND y.finish_position = 1)
+                {where}
+                ORDER BY r.start_time_utc DESC, r.race_id DESC
+                LIMIT %s OFFSET %s""", params + [int(limit), int(offset)])
+            return {"total": counts["n"], "with_bsp": int(counts["with_bsp"] or 0)}, cur.fetchall()
+
+    def race_detail(self, race_id):
+        """One saved race with all its runners, price histories and exotics, or None."""
+        with self.connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM races WHERE race_id = %s", (race_id,))
+            race = cur.fetchone()
+            if not race:
+                return None
+            cur.execute("""SELECT * FROM runners WHERE race_id = %s
+                           ORDER BY scratched, finish_position IS NULL, finish_position, runner_number""",
+                        (race_id,))
+            runners = cur.fetchall()
+            cur.execute("SELECT runner_number, price FROM price_fluctuations WHERE race_id = %s ORDER BY runner_number, seq",
+                        (race_id,))
+            flucs = {}
+            for row in cur.fetchall():
+                flucs.setdefault(row["runner_number"], []).append(row["price"])
+            for r in runners:
+                r["flucs"] = flucs.get(r["runner_number"], [])
+            cur.execute("SELECT bet_type, runners, dividend FROM exotic_results WHERE race_id = %s", (race_id,))
+            exotics = cur.fetchall()
+        return {"race": race, "runners": runners, "exotics": exotics}
+
+    def export_rows(self, filters, limit=50000):
+        """Every runner in the matching races, flattened for a CSV download."""
+        where, params = self._where(filters)
+        with self.connect() as conn, conn.cursor() as cur:
+            cur.execute(f"""
+                SELECT r.race_date, r.venue, r.race_type, r.region, r.race_number, r.race_name, r.distance_m,
+                       r.start_time_utc, r.bsp_status, u.runner_number, u.runner_name, u.barrier, u.jockey,
+                       u.trainer, u.weight_kg, u.scratched, u.finish_position, u.open_price, u.fixed_win,
+                       u.fixed_place, u.sportsbet_sp, u.tote_win, u.tote_place, u.bsp, u.runner_comment,
+                       (SELECT GROUP_CONCAT(f.price ORDER BY f.seq SEPARATOR ' > ') FROM price_fluctuations f
+                        WHERE f.race_id = u.race_id AND f.runner_number = u.runner_number) AS flucs
+                FROM races r JOIN runners u ON u.race_id = r.race_id
+                {where}
+                ORDER BY r.start_time_utc DESC, r.race_id, u.scratched, u.finish_position IS NULL,
+                         u.finish_position, u.runner_number
+                LIMIT %s""", params + [int(limit)])
+            return cur.fetchall()
+
     def stats(self):
         with self.connect() as conn, conn.cursor() as cur:
             out = {}

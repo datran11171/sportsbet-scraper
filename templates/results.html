@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Saved Results</title>
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+{% include "_jumpbar.html" %}
+<main>
+  <header class="topbar">
+    <a class="home-btn" href="/">⌂ Home</a>
+    <a class="home-btn" href="/results" aria-current="page">Results</a>
+    <h1>Saved Results</h1>
+  </header>
+  <p class="sub">Every finished race saved to the database: results, Sportsbet SP, tote, Betfair SP and comments.
+    Click a race for the full field.</p>
+
+  <form id="filters" class="filters">
+    <label>From <input type="date" name="from"></label>
+    <label>To <input type="date" name="to"></label>
+    <label>Type
+      <select name="type">
+        <option value="">All</option>
+        <option value="horse">Horses</option>
+        <option value="greyhound">Greyhounds</option>
+        <option value="harness">Harness</option>
+      </select>
+    </label>
+    <label>Region
+      <select name="region">
+        <option value="">All</option>
+        <option value="aus">Aus / NZ</option>
+        <option value="intl">International</option>
+      </select>
+    </label>
+    <label>Venue <input type="search" name="venue" placeholder="e.g. Randwick" size="12"></label>
+    <label>Runner / jockey / trainer <input type="search" name="search" placeholder="name" size="14"></label>
+    <label class="check"><input type="checkbox" name="bsp" value="1"> With BSP only</label>
+    <button type="submit">Search</button>
+    <a class="home-btn" id="csv" href="/api/results.csv" download>Download CSV</a>
+  </form>
+
+  <div id="error" class="error" hidden></div>
+  <p class="summary" id="summary"></p>
+
+  <section class="card" id="results-card" hidden>
+    <div class="table-wrap">
+      <table class="results-list">
+        <thead>
+          <tr>
+            <th>Date</th><th>Venue</th><th class="num">Race</th><th>Type</th><th class="num">Dist</th>
+            <th>Winner</th><th class="num">Fixed</th><th class="num">SP</th><th class="num">Tote</th>
+            <th class="num">BSP</th><th class="num">Field</th><th>Betfair</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <div class="more"><button class="secondary" id="more" type="button" hidden>Load more</button></div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const form = $("filters");
+const TYPE_NAMES = { horse: "Horses", greyhound: "Greyhounds", harness: "Harness" };
+const BSP_STATUS = {
+  ok: ["BSP", "Betfair SP saved"],
+  pending: ["Pending", "Betfair market found; BSP not settled yet"],
+  missing: ["Missing", "Betfair market found but no BSP after 24 hours"],
+  not_saved: ["Missed", "Betfair covers this venue, but the race closed before the app saved its market"],
+  not_found: ["No market", "No Betfair market seen at this venue (not covered, or the app wasn't running)"],
+  no_betfair: ["Off", "Betfair isn't set up"],
+};
+let offset = 0, total = 0, loading = false;
+
+const fmt = (v) => v == null ? "–" : Number(v).toFixed(2);
+const el = (tag, props = {}, ...children) => {
+  const e = Object.assign(document.createElement(tag), props);
+  e.append(...children.filter(c => c != null));
+  return e;
+};
+function localISO(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function ordinal(n) {
+  const s = n % 100 >= 11 && n % 100 <= 13 ? "th" : ({ 1: "st", 2: "nd", 3: "rd" })[n % 10] || "th";
+  return n + s;
+}
+
+// Filters <-> address bar, so a search can be bookmarked.
+function query(extra = {}) {
+  const p = new URLSearchParams();
+  for (const [k, v] of new FormData(form)) if (v) p.set(k, v);
+  for (const [k, v] of Object.entries(extra)) p.set(k, v);
+  return p;
+}
+function fillForm() {
+  const p = new URLSearchParams(location.search);
+  const week = new Date(); week.setDate(week.getDate() - 6);
+  form.from.value = p.get("from") || localISO(week);
+  form.to.value = p.get("to") || localISO(new Date());
+  for (const name of ["type", "region", "venue", "search"]) form[name].value = p.get(name) || "";
+  form.bsp.checked = p.get("bsp") === "1";
+}
+
+async function search(append = false) {
+  if (loading) return;
+  loading = true;
+  if (!append) offset = 0;
+  const q = query({ offset });
+  history.replaceState(null, "", "/results?" + query().toString());
+  $("csv").href = "/api/results.csv?" + query().toString();
+  $("error").hidden = true;
+  try {
+    const resp = await fetch("/api/results?" + q);
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || "Request failed");
+    total = data.total;
+    $("summary").textContent = total
+      ? `${total.toLocaleString()} races · ${data.with_bsp.toLocaleString()} with Betfair SP`
+      : "No saved races match these filters.";
+    $("results-card").hidden = total === 0;
+    const rows = data.races.flatMap(raceRows);
+    if (append) $("rows").append(...rows); else $("rows").replaceChildren(...rows);
+    offset += data.races.length;
+    $("more").hidden = offset >= total;
+    $("more").textContent = `Load more (${(total - offset).toLocaleString()} left)`;
+  } catch (e) {
+    $("error").textContent = e.message;
+    $("error").hidden = false;
+    $("results-card").hidden = true;
+    $("summary").textContent = "";
+  } finally {
+    loading = false;
+  }
+}
+
+// One clickable summary row per race, plus a hidden row for its details.
+function raceRows(r) {
+  const start = r.start_time_utc ? new Date(r.start_time_utc) : null;
+  const when = start
+    ? start.toLocaleDateString([], { day: "numeric", month: "short" }) + " " +
+      start.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+    : r.race_date;
+  const [label, tip] = BSP_STATUS[r.bsp_status] || [r.bsp_status, ""];
+  const winner = r.winner
+    ? el("span", {}, el("b", { textContent: `${r.winner_no}. ${r.winner}` }),
+         r.winner_jockey ? el("span", { className: "muted small", textContent: " · " + r.winner_jockey }) : null)
+    : el("span", { className: "muted", textContent: "–" });
+
+  const tr = el("tr", { className: "race-row", tabIndex: 0, title: "Show the full field" },
+    el("td", { textContent: when }),
+    el("td", {}, el("b", { textContent: r.venue }), el("span", { className: "muted small", textContent: " " + (r.region || "") })),
+    el("td", { className: "num", textContent: "R" + r.race_number }),
+    el("td", { textContent: TYPE_NAMES[r.race_type] || r.race_type }),
+    el("td", { className: "num", textContent: r.distance_m ? r.distance_m + "m" : "–" }),
+    el("td", {}, winner),
+    el("td", { className: "num", textContent: fmt(r.winner_fixed) }),
+    el("td", { className: "num", textContent: fmt(r.winner_sp) }),
+    el("td", { className: "num", textContent: fmt(r.winner_tote) }),
+    el("td", { className: "num price", textContent: fmt(r.winner_bsp) }),
+    el("td", { className: "num", textContent: r.starters }),
+    el("td", {}, el("span", { className: "status-pill " + r.bsp_status, textContent: label, title: tip })));
+
+  const detail = el("tr", { className: "detail-row", hidden: true });
+  const cell = el("td", { colSpan: 12 });
+  detail.append(cell);
+
+  const toggle = async () => {
+    detail.hidden = !detail.hidden;
+    tr.classList.toggle("open", !detail.hidden);
+    if (!detail.hidden && !cell.dataset.loaded) {
+      cell.textContent = "Loading…";
+      try {
+        const resp = await fetch("/api/results/" + r.race_id);
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || "Request failed");
+        cell.replaceChildren(raceDetail(data));
+        cell.dataset.loaded = "1";
+      } catch (e) {
+        cell.textContent = e.message;
+      }
+    }
+  };
+  tr.addEventListener("click", toggle);
+  tr.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } });
+  return [tr, detail];
+}
+
+function fluc(prices) {
+  if (!prices || prices.length < 2) return "–";
+  const a = prices[0], b = prices[prices.length - 1];
+  return `${fmt(a)} → ${fmt(b)}${b > a ? " ▲" : b < a ? " ▼" : ""}`;
+}
+
+function raceDetail({ race, runners, exotics }) {
+  const head = el("div", { className: "detail-head" },
+    el("b", { textContent: race.race_name || `R${race.race_number} ${race.venue}` }),
+    race.distance_m ? el("span", { className: "muted", textContent: ` · ${race.distance_m}m` }) : null,
+    race.betfair_market_id ? el("span", { className: "muted", textContent: ` · Betfair market ${race.betfair_market_id}` }) : null,
+    el("span", { className: "muted", textContent: " · " }),
+    el("a", { href: "/race?race=" + encodeURIComponent(race.link), textContent: "Open race page ↗",
+              title: "Sportsbet keeps about a week of races, so older race pages may not load" }));
+
+  const cols = ["Pos", "No", "Runner", "Jockey / Driver", "Trainer", "Wt", "Flucs (open → final)",
+                "Fixed", "Place", "SP", "Tote W", "Tote P", "BSP", "Comment"];
+  const numeric = new Set(["No", "Wt", "Fixed", "Place", "SP", "Tote W", "Tote P", "BSP"]);
+  const table = el("table", { className: "detail-table" },
+    el("thead", {}, el("tr", {}, ...cols.map(c => el("th", { className: numeric.has(c) ? "num" : "", textContent: c })))),
+    el("tbody", {}, ...runners.map(u => el("tr", { className: u.scratched ? "scr" : u.finish_position === 1 ? "win" : "" },
+      el("td", { textContent: u.scratched ? "SCR" : u.finish_position ? ordinal(u.finish_position) : "" }),
+      el("td", { className: "num", textContent: u.runner_number }),
+      el("td", { textContent: u.runner_name }),
+      el("td", { textContent: u.jockey || "" }),
+      el("td", { textContent: u.trainer || "" }),
+      el("td", { className: "num", textContent: u.weight_kg ? u.weight_kg + "kg" : "" }),
+      el("td", { className: "small", textContent: u.scratched ? "" : fluc(u.flucs), title: (u.flucs || []).map(fmt).join(" → ") }),
+      el("td", { className: "num price", textContent: u.scratched ? "–" : fmt(u.fixed_win) }),
+      el("td", { className: "num", textContent: u.scratched ? "–" : fmt(u.fixed_place) }),
+      el("td", { className: "num", textContent: fmt(u.sportsbet_sp) }),
+      el("td", { className: "num", textContent: fmt(u.tote_win) }),
+      el("td", { className: "num", textContent: fmt(u.tote_place) }),
+      el("td", { className: "num price", textContent: fmt(u.bsp) }),
+      el("td", { className: "comment", textContent: u.runner_comment || "" })))));
+
+  const parts = [head];
+  if (race.race_comment) parts.push(el("p", { className: "race-comment", textContent: race.race_comment }));
+  parts.push(el("div", { className: "table-wrap" }, table));
+  if (exotics.length) {
+    parts.push(el("p", { className: "exotics-line" }, el("b", { textContent: "Exotics: " }),
+      exotics.map(x => `${x.bet_type} ${x.runners} $${fmt(x.dividend)}`).join(" · ")));
+  }
+  return el("div", { className: "detail" }, ...parts);
+}
+
+form.addEventListener("submit", (e) => { e.preventDefault(); search(); });
+for (const name of ["from", "to", "type", "region", "bsp"]) form[name].addEventListener("change", () => search());
+$("more").onclick = () => search(true);
+
+fillForm();
+search();
+</script>
+</body>
+</html>
